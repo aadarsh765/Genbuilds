@@ -1,1240 +1,791 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>EnkaVerse — Genshin Showcase</title>
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@300;400;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --gold:#f0c040;--gold-dim:#a8862a;--cyan:#00e5ff;--cyan-dim:#0097a7;
+  --rose:#ff6b8a;--rose-dim:#c2185b;--green:#6effa8;--purple:#c084fc;
+  --bg:#080c14;--bg2:#0d1320;--bg3:#111a28;
+  --glass:rgba(255,255,255,0.04);--glass2:rgba(255,255,255,0.07);--glass3:rgba(255,255,255,0.11);
+  --border:rgba(255,255,255,0.09);--border2:rgba(255,255,255,0.15);
+  --text:#e8eaf0;--text-dim:#8899aa;--text-muted:#4a5a6a;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:'Oxanium',sans-serif;min-height:100vh;overflow-x:hidden;}
+#particles{position:fixed;inset:0;z-index:0;pointer-events:none;}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse 80% 50% at 10% 20%,rgba(0,229,255,.07) 0%,transparent 60%),
+             radial-gradient(ellipse 60% 60% at 90% 80%,rgba(240,192,64,.06) 0%,transparent 60%),
+             radial-gradient(ellipse 50% 40% at 50% 50%,rgba(255,107,138,.04) 0%,transparent 70%);}
 
-/* ═══════════════════════════════════════════════════════════════════════
-  ENKA.NETWORK API INTEGRATION
-  Implements all 5 requirements:
-    1. Correct endpoint  (/api/uid/<UID>)
-    2. Custom User-Agent (via proxy header forwarding where supported)
-    3. ID → Name/Icon mapping via official store/characters.json + store/loc.json
-    4. Safe JSON parsing with field guards throughout
-    5. TTL-based in-memory cache driven by the `ttl` field in the response
-═══════════════════════════════════════════════════════════════════════ */
+/* ── WRAPPER ── */
+.wrapper{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:0 1.5rem 5rem;}
 
-// ─── CONSTANTS ────────────────────────────────────────────────────────
-const ENKA_BASE     = "https://enka.network";
-const ENKA_API      = `${ENKA_BASE}/api/uid`;
-const ENKA_CDN      = `${ENKA_BASE}/ui`;
-const ENKA_STORE    = "https://raw.githubusercontent.com/EnkaNetwork/API-docs/master/store";
-const USER_AGENT    = "EnkaVerse/2.0 (github.com/community)";
+/* ── HEADER ── */
+header{padding:2.5rem 0 0;text-align:center;margin-bottom:0;}
+.logo{font-size:clamp(1.8rem,5vw,3rem);font-weight:800;letter-spacing:.12em;
+  background:linear-gradient(135deg,var(--gold),var(--cyan) 60%,var(--rose));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.tagline{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text-dim);letter-spacing:.2em;text-transform:uppercase;margin-top:.3rem;}
 
-// CORS proxy list — tried in order on failure
-const CORS_PROXIES = [
-  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+/* ── SEARCH ── */
+.search-section{max-width:500px;margin:1.8rem auto 0;}
+.search-row{display:flex;gap:.6rem;}
+.search-input{flex:1;background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:.7rem 1rem;color:var(--text);font-family:'DM Mono',monospace;font-size:.9rem;outline:none;transition:border-color .2s,box-shadow .2s;}
+.search-input:focus{border-color:var(--cyan-dim);box-shadow:0 0 0 3px rgba(0,229,255,.08);}
+.search-input::placeholder{color:var(--text-dim);}
+.search-btn{background:linear-gradient(135deg,var(--gold-dim),var(--gold));border:none;border-radius:8px;padding:.7rem 1.3rem;color:#0a0a0a;font-family:'Oxanium',sans-serif;font-weight:700;font-size:.85rem;letter-spacing:.08em;cursor:pointer;transition:opacity .2s,transform .15s;white-space:nowrap;}
+.search-btn:hover{opacity:.88;transform:translateY(-1px);}
+.search-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+.status{text-align:center;font-family:'DM Mono',monospace;font-size:.75rem;margin-top:.6rem;min-height:1.1em;}
+.status.loading{color:var(--cyan);}.status.error{color:var(--rose);}.status.ok{color:var(--green);}
+
+/* ── TABS ── */
+.tabs-bar{display:flex;gap:0;margin:2rem 0 0;border-bottom:1px solid var(--border);position:relative;}
+.tab-btn{background:transparent;border:none;padding:.75rem 1.6rem;font-family:'Oxanium',sans-serif;font-size:.82rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);cursor:pointer;position:relative;transition:color .2s;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{color:var(--gold);border-bottom-color:var(--gold);}
+.tab-panel{display:none;padding-top:2rem;}
+.tab-panel.active{display:block;}
+
+/* ── PLAYER CARD ── */
+.player-card{background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:1.2rem 1.6rem;margin-bottom:2rem;display:flex;align-items:center;gap:1.4rem;backdrop-filter:blur(12px);}
+.player-avatar{width:56px;height:56px;border-radius:50%;border:2px solid var(--gold-dim);background:rgba(240,192,64,.1);display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;}
+.player-name{font-size:1.2rem;font-weight:700;color:var(--gold);}
+.player-meta{display:flex;gap:1.2rem;margin-top:.35rem;flex-wrap:wrap;}
+.player-meta span{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--text-dim);}
+.player-meta span b{color:var(--text);font-weight:500;}
+
+/* ── CHARS GRID ── */
+.chars-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;}
+.char-thumb{background:var(--glass);border:1px solid var(--border);border-radius:14px;overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .15s;position:relative;}
+.char-thumb:hover{box-shadow:0 10px 32px rgba(0,0,0,.5),0 0 0 1px rgba(240,192,64,.25);transform:translateY(-3px);}
+.char-thumb-banner{position:relative;height:110px;overflow:hidden;}
+.char-thumb-banner::after{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 30%,var(--bg) 100%);z-index:1;}
+.char-thumb-art{position:absolute;right:0;bottom:0;height:114px;z-index:0;filter:drop-shadow(0 0 16px rgba(0,0,0,.9));}
+.char-thumb-elem{position:absolute;top:.5rem;left:.6rem;z-index:2;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.15);}
+.char-thumb-body{padding:.55rem .7rem .65rem;}
+.char-thumb-name{font-size:.82rem;font-weight:700;letter-spacing:.03em;margin-bottom:.35rem;}
+.char-thumb-row{display:flex;align-items:center;justify-content:space-between;}
+.char-thumb-lvl{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-dim);}
+.char-thumb-cv{font-family:'Oxanium',monospace;font-size:.75rem;font-weight:700;}
+.cv-god{color:var(--rose)}.cv-high{color:var(--cyan)}.cv-mid{color:var(--gold)}.cv-low{color:var(--text-dim);}
+.char-thumb-consts{display:flex;gap:2px;margin-top:.35rem;}
+.cdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);}
+.cdot.on{background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 4px rgba(0,229,255,.5);}
+
+/* ── MODAL ── */
+.modal-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:1rem;opacity:0;pointer-events:none;transition:opacity .25s;}
+.modal-overlay.open{opacity:1;pointer-events:all;}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:20px;width:100%;max-width:860px;max-height:90vh;overflow-y:auto;position:relative;transform:translateY(20px) scale(.97);transition:transform .25s;}
+.modal-overlay.open .modal{transform:none;}
+.modal-close{position:absolute;top:1rem;right:1rem;background:var(--glass2);border:1px solid var(--border);color:var(--text-dim);width:32px;height:32px;border-radius:50%;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .2s,background .2s;z-index:10;}
+.modal-close:hover{color:var(--text);background:var(--glass3);}
+
+/* modal header banner */
+.modal-banner{position:relative;height:180px;overflow:hidden;border-radius:20px 20px 0 0;}
+.modal-banner::after{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 30%,var(--bg2) 100%);z-index:1;}
+.modal-banner-bg{position:absolute;inset:0;background:linear-gradient(135deg,#0e1520,#1a2030);}
+.modal-banner-art{position:absolute;right:2rem;bottom:0;height:195px;z-index:0;filter:drop-shadow(0 0 30px rgba(0,0,0,.8));}
+.modal-banner-info{position:absolute;bottom:1.2rem;left:1.6rem;z-index:2;}
+.modal-char-name{font-size:1.6rem;font-weight:800;letter-spacing:.05em;}
+.modal-char-meta{display:flex;gap:.8rem;margin-top:.3rem;align-items:center;}
+.modal-char-meta span{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--text-dim);}
+.modal-elem-badge{display:flex;align-items:center;gap:.3rem;font-family:'DM Mono',monospace;font-size:.7rem;}
+
+/* modal body */
+.modal-body{padding:1.2rem 1.6rem 1.8rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem;}
+@media(max-width:700px){.modal-body{grid-template-columns:1fr;}}
+
+.modal-section{background:var(--glass);border:1px solid var(--border);border-radius:12px;padding:1rem;}
+.modal-section-title{font-family:'DM Mono',monospace;font-size:.6rem;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);margin-bottom:.75rem;padding-bottom:.4rem;border-bottom:1px solid var(--border);}
+
+/* talents */
+.talent-row{display:flex;align-items:center;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid rgba(255,255,255,.04);}
+.talent-name{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--text-dim);}
+.talent-val{font-family:'Oxanium',sans-serif;font-size:.95rem;font-weight:700;color:var(--text);}
+.talent-val.boosted{color:var(--cyan);}
+.talent-boost-badge{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--cyan);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.2);border-radius:4px;padding:.05rem .3rem;margin-left:.3rem;}
+
+/* stats */
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:.22rem 0;border-bottom:1px solid rgba(255,255,255,.04);}
+.stat-lbl{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-dim);text-transform:uppercase;}
+.stat-v{font-family:'DM Mono',monospace;font-size:.7rem;font-weight:500;color:var(--text);}
+.stat-v.crit{color:var(--rose);font-weight:600;}
+
+/* ranking */
+.rank-cv-display{text-align:center;margin-bottom:.8rem;}
+.rank-cv-num{font-size:2rem;font-weight:800;font-family:'Oxanium',sans-serif;color:var(--gold);}
+.rank-cv-num.god{color:var(--rose);}.rank-cv-num.high{color:var(--cyan);}
+.rank-cv-label{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--text-dim);letter-spacing:.12em;text-transform:uppercase;}
+.rank-bar-wrap{margin:.5rem 0;}
+.rank-bar-label{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:.6rem;color:var(--text-dim);margin-bottom:.25rem;}
+.rank-bar-track{height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;}
+.rank-bar-fill{height:100%;border-radius:3px;transition:width .6s ease;}
+.rank-tier-list{display:flex;flex-direction:column;gap:.25rem;margin-top:.7rem;}
+.rank-tier{display:flex;justify-content:space-between;align-items:center;padding:.25rem .5rem;border-radius:6px;font-family:'DM Mono',monospace;font-size:.62rem;}
+.rank-tier.active{border:1px solid;}
+.rt-god{background:rgba(255,107,138,.08);color:var(--rose);}
+.rt-god.active{border-color:rgba(255,107,138,.35);}
+.rt-high{background:rgba(0,229,255,.06);color:var(--cyan);}
+.rt-high.active{border-color:rgba(0,229,255,.3);}
+.rt-mid{background:rgba(240,192,64,.06);color:var(--gold);}
+.rt-mid.active{border-color:rgba(240,192,64,.28);}
+.rt-low{background:rgba(255,255,255,.03);color:var(--text-dim);}
+.rt-low.active{border-color:var(--border2);}
+
+/* artifacts in modal */
+.art-item{display:flex;gap:.65rem;align-items:flex-start;padding:.5rem 0;border-bottom:1px solid rgba(255,255,255,.04);}
+.art-item:last-child{border-bottom:none;}
+.art-icon-wrap{position:relative;flex-shrink:0;}
+.art-icon{width:40px;height:40px;border-radius:7px;object-fit:contain;background:rgba(255,255,255,.05);border:1px solid var(--border);}
+.art-ph{width:40px;height:40px;border-radius:7px;background:var(--glass2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;}
+.art-stars{position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);font-size:.38rem;color:var(--gold);letter-spacing:-1px;white-space:nowrap;}
+.art-info{flex:1;min-width:0;}
+.art-slot{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;}
+.art-set{font-size:.7rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:.05rem 0;}
+.art-main{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--gold);margin-bottom:.2rem;}
+.art-subs{display:flex;flex-direction:column;gap:.1rem;}
+.art-sub{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:.58rem;}
+.art-sub-lbl{color:var(--text-dim);}
+.art-sub-val{color:var(--text);}
+.art-sub-val.crit{color:var(--rose);font-weight:600;}
+.art-sub-val.em{color:var(--green);}
+
+/* ── TEAM BUILDER ── */
+.team-intro{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text-dim);letter-spacing:.08em;margin-bottom:1.4rem;}
+.team-slots{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem;}
+.team-slot{background:var(--glass);border:2px dashed var(--border);border-radius:14px;min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;cursor:pointer;transition:border-color .2s,background .2s;position:relative;overflow:hidden;}
+.team-slot.filled{border-style:solid;border-color:var(--border2);cursor:default;}
+.team-slot.filled:hover{background:var(--glass2);}
+.team-slot:not(.filled):hover{border-color:var(--gold-dim);background:rgba(240,192,64,.04);}
+.slot-placeholder{font-size:1.8rem;opacity:.3;}
+.slot-placeholder-text{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase;}
+.slot-art{height:90px;width:auto;object-fit:contain;filter:drop-shadow(0 0 12px rgba(0,0,0,.7));}
+.slot-name{font-size:.78rem;font-weight:700;text-align:center;}
+.slot-cv{font-family:'DM Mono',monospace;font-size:.62rem;}
+.slot-remove{position:absolute;top:.4rem;right:.4rem;background:rgba(255,107,138,.15);border:1px solid rgba(255,107,138,.3);color:var(--rose);width:20px;height:20px;border-radius:50%;font-size:.65rem;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.slot-remove:hover{background:rgba(255,107,138,.3);}
+.team-elem-banner{background:var(--glass);border:1px solid var(--border);border-radius:12px;padding:1rem 1.2rem;margin-bottom:1.5rem;}
+.team-elem-title{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-dim);letter-spacing:.15em;text-transform:uppercase;margin-bottom:.6rem;}
+.team-elems{display:flex;gap:.5rem;flex-wrap:wrap;}
+.team-elem-chip{display:flex;align-items:center;gap:.35rem;padding:.25rem .6rem;border-radius:20px;font-family:'DM Mono',monospace;font-size:.65rem;border:1px solid;}
+.picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.65rem;}
+.picker-title{font-family:'DM Mono',monospace;font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;color:var(--text-dim);margin-bottom:.75rem;}
+.picker-card{background:var(--glass);border:1px solid var(--border);border-radius:10px;padding:.5rem;display:flex;align-items:center;gap:.5rem;cursor:pointer;transition:border-color .2s,background .2s;}
+.picker-card:hover{border-color:var(--gold-dim);background:rgba(240,192,64,.05);}
+.picker-card.in-team{border-color:var(--cyan-dim);background:rgba(0,229,255,.05);opacity:.6;cursor:not-allowed;}
+.picker-icon{width:36px;height:36px;border-radius:7px;object-fit:contain;background:rgba(255,255,255,.05);}
+.picker-info .picker-name{font-size:.72rem;font-weight:700;}
+.picker-info .picker-cv{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--text-dim);}
+
+/* ── DAMAGE CALC ── */
+.dmg-intro{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text-dim);margin-bottom:1.4rem;letter-spacing:.05em;line-height:1.7;}
+.dmg-layout{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;}
+@media(max-width:650px){.dmg-layout{grid-template-columns:1fr;}}
+.dmg-panel{background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:1.2rem;}
+.dmg-panel-title{font-family:'DM Mono',monospace;font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem;padding-bottom:.5rem;border-bottom:1px solid var(--border);}
+.char-select-list{display:flex;flex-direction:column;gap:.4rem;}
+.char-sel-btn{background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:.5rem .75rem;display:flex;align-items:center;gap:.6rem;cursor:pointer;transition:border-color .2s,background .2s;text-align:left;}
+.char-sel-btn:hover{border-color:var(--gold-dim);background:rgba(240,192,64,.05);}
+.char-sel-btn.active{border-color:var(--gold);background:rgba(240,192,64,.08);}
+.csel-icon{width:32px;height:32px;border-radius:6px;object-fit:contain;background:rgba(255,255,255,.05);}
+.csel-name{font-size:.78rem;font-weight:700;}
+.csel-cv{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--text-dim);}
+.dmg-inputs{display:flex;flex-direction:column;gap:.75rem;margin-bottom:1rem;}
+.dmg-field{display:flex;flex-direction:column;gap:.3rem;}
+.dmg-field label{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-dim);letter-spacing:.1em;text-transform:uppercase;}
+.dmg-input{background:var(--glass2);border:1px solid var(--border);border-radius:7px;padding:.45rem .75rem;color:var(--text);font-family:'DM Mono',monospace;font-size:.85rem;outline:none;transition:border-color .2s;}
+.dmg-input:focus{border-color:var(--gold-dim);}
+.dmg-calc-btn{width:100%;background:linear-gradient(135deg,var(--gold-dim),var(--gold));border:none;border-radius:8px;padding:.65rem;color:#0a0a0a;font-family:'Oxanium',sans-serif;font-weight:700;font-size:.85rem;letter-spacing:.08em;cursor:pointer;transition:opacity .2s;}
+.dmg-calc-btn:hover{opacity:.88;}
+.dmg-results{background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:1.2rem;margin-top:1.2rem;}
+.dmg-result-title{font-family:'DM Mono',monospace;font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem;}
+.dmg-result-row{display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid rgba(255,255,255,.04);}
+.dmg-result-lbl{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--text-dim);}
+.dmg-result-val{font-family:'Oxanium',sans-serif;font-size:1rem;font-weight:700;color:var(--text);}
+.dmg-result-val.crit{color:var(--rose);}
+.dmg-result-val.avg{color:var(--gold);}
+.dmg-result-val.norm{color:var(--cyan);}
+.dmg-breakdown{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-dim);margin-top:.75rem;line-height:1.8;background:rgba(0,0,0,.2);border-radius:8px;padding:.7rem;}
+.dmg-empty{text-align:center;padding:2rem;font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text-muted);}
+
+/* ── MISC ── */
+.empty-state{text-align:center;padding:4rem 1rem;color:var(--text-dim);}
+.empty-state .big{font-size:2.5rem;margin-bottom:.8rem;}
+.empty-state p{font-family:'DM Mono',monospace;font-size:.75rem;letter-spacing:.1em;}
+footer{margin-top:4rem;text-align:center;padding:1.4rem 0;border-top:1px solid var(--border);font-family:'DM Mono',monospace;font-size:.65rem;color:var(--text-dim);letter-spacing:.08em;}
+footer a{color:var(--cyan-dim);text-decoration:none;}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(0,229,255,.2);border-top-color:var(--cyan);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px;}
+@media(max-width:560px){.chars-grid{grid-template-columns:repeat(2,1fr);}.team-slots{grid-template-columns:repeat(2,1fr);}.player-card{flex-direction:column;text-align:center;}.player-meta{justify-content:center;}}
+</style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+<div class="wrapper">
+  <header>
+    <div class="logo">ENKAVERSE</div>
+    <div class="tagline">Genshin Impact · Character Showcase</div>
+  </header>
+
+  <div class="search-section">
+    <div class="search-row">
+      <input id="uid-input" class="search-input" type="text" placeholder="Enter UID (9–10 digits)" maxlength="10"/>
+      <button id="search-btn" class="search-btn" onclick="fetchProfile()">SEARCH</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="tabs-bar">
+    <button class="tab-btn active" onclick="switchTab('chars',this)">⚔ Characters</button>
+    <button class="tab-btn" onclick="switchTab('team',this)">🏰 Team Builder</button>
+    <button class="tab-btn" onclick="switchTab('damage',this)">💥 Damage</button>
+  </div>
+
+  <!-- CHARACTERS TAB -->
+  <div id="tab-chars" class="tab-panel active">
+    <div id="chars-app">
+      <div class="empty-state"><div class="big">🔍</div><p>Enter a UID above to load showcase characters.</p></div>
+    </div>
+  </div>
+
+  <!-- TEAM BUILDER TAB -->
+  <div id="tab-team" class="tab-panel">
+    <div id="team-app">
+      <div class="empty-state"><div class="big">⚔️</div><p>Load a UID first to pick characters for your team.</p></div>
+    </div>
+  </div>
+
+  <!-- DAMAGE TAB -->
+  <div id="tab-damage" class="tab-panel">
+    <div id="damage-app">
+      <div class="empty-state"><div class="big">💥</div><p>Load a UID first, then build a team to calculate damage.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay" class="modal-overlay" onclick="closeModalOnBg(event)">
+  <div class="modal" id="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<footer>EnkaVerse · Data from <a href="https://enka.network" target="_blank">enka.network</a> · Not affiliated with HoYoverse · Genshin Impact™ HoYoverse</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG & CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const ENKA_CDN  = 'https://enka.network/ui';
+const CHAR_JSON = 'https://raw.githubusercontent.com/EnkaNetwork/API-docs/master/store/characters.json';
+const LOC_JSON  = 'https://raw.githubusercontent.com/EnkaNetwork/API-docs/master/store/loc.json';
+const PROXIES   = [
+  u=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u=>`https://corsproxy.io/?${encodeURIComponent(u)}`,
+  u=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
 ];
+const CACHE={}, TTL=60000;
 
-// HTTP status → human error messages (per official Enka docs)
-const HTTP_ERRORS = {
-  400: "Malformed UID — check the format and length.",
-  404: "Player not found. The UID doesn't exist on Enka.Network.",
-  424: "Game servers are under maintenance or the API needs updating.",
-  429: "Rate limited. Wait a moment before searching again.",
-  500: "Enka.Network server error. Try again shortly.",
-  503: "Enka.Network is temporarily down.",
-};
+const ELEM_EMOJI={Wind:'🌪️',Rock:'🪨',Electric:'⚡',Grass:'🌿',Water:'💧',Fire:'🔥',Ice:'❄️'};
+const ELEM_COLOR={Wind:'#7ec8a0',Rock:'#cfa44a',Electric:'#b08af0',Grass:'#a3cc55',Water:'#4ab0e0',Fire:'#e05f30',Ice:'#a0d8ef'};
+const FIGHT_PROPS={'2000':['HP',false],'2001':['ATK',false],'2002':['DEF',false],'20':['CRIT Rate',true],'22':['CRIT DMG',true],'23':['ER',true],'28':['EM',false]};
+const PROP_NAME={FIGHT_PROP_HP:'HP',FIGHT_PROP_ATTACK:'ATK',FIGHT_PROP_DEFENSE:'DEF',FIGHT_PROP_HP_PERCENT:'HP%',FIGHT_PROP_ATTACK_PERCENT:'ATK%',FIGHT_PROP_DEFENSE_PERCENT:'DEF%',FIGHT_PROP_CRITICAL:'CRIT Rate',FIGHT_PROP_CRITICAL_HURT:'CRIT DMG',FIGHT_PROP_CHARGE_EFFICIENCY:'ER',FIGHT_PROP_ELEMENT_MASTERY:'EM',FIGHT_PROP_PHYSICAL_ADD_HURT:'Phys%',FIGHT_PROP_FIRE_ADD_HURT:'Pyro%',FIGHT_PROP_WATER_ADD_HURT:'Hydro%',FIGHT_PROP_WIND_ADD_HURT:'Anemo%',FIGHT_PROP_ELEC_ADD_HURT:'Electro%',FIGHT_PROP_ICE_ADD_HURT:'Cryo%',FIGHT_PROP_ROCK_ADD_HURT:'Geo%',FIGHT_PROP_GRASS_ADD_HURT:'Dendro%',FIGHT_PROP_HEAL_ADD:'Heal%'};
+const PCT_PROPS=new Set(['FIGHT_PROP_HP_PERCENT','FIGHT_PROP_ATTACK_PERCENT','FIGHT_PROP_DEFENSE_PERCENT','FIGHT_PROP_CRITICAL','FIGHT_PROP_CRITICAL_HURT','FIGHT_PROP_CHARGE_EFFICIENCY','FIGHT_PROP_PHYSICAL_ADD_HURT','FIGHT_PROP_FIRE_ADD_HURT','FIGHT_PROP_WATER_ADD_HURT','FIGHT_PROP_WIND_ADD_HURT','FIGHT_PROP_ELEC_ADD_HURT','FIGHT_PROP_ICE_ADD_HURT','FIGHT_PROP_ROCK_ADD_HURT','FIGHT_PROP_GRASS_ADD_HURT','FIGHT_PROP_HEAL_ADD']);
+const CRIT_PROPS=new Set(['FIGHT_PROP_CRITICAL','FIGHT_PROP_CRITICAL_HURT']);
+const SLOT_NAME={EQUIP_BRACER:'Flower',EQUIP_NECKLACE:'Feather',EQUIP_SHOES:'Sands',EQUIP_RING:'Goblet',EQUIP_DRESS:'Circlet'};
+const SLOT_EMOJI={EQUIP_BRACER:'🌸',EQUIP_NECKLACE:'🪶',EQUIP_SHOES:'⏳',EQUIP_RING:'🏆',EQUIP_DRESS:'👑'};
+const SLOT_ORDER=['EQUIP_BRACER','EQUIP_NECKLACE','EQUIP_SHOES','EQUIP_RING','EQUIP_DRESS'];
 
-/* ═══════════════════════════════════════════════════════════════════════
-  REQUIREMENT 5: TTL-BASED IN-MEMORY CACHE
-  Stores { data, expiresAt } per UID. expiresAt is driven by response.ttl.
-  No localStorage used — purely in-memory, session-scoped.
-═══════════════════════════════════════════════════════════════════════ */
-const uidCache = new Map(); // uid → { data: Object, expiresAt: number }
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let charMeta=null, locData=null;
+let loadedChars=[];   // parsed character objects
+let team=[null,null,null,null]; // up to 4 team slots (avatarId or null)
+let dmgSelectedId=null;
 
-function getCached(uid) {
-  const entry = uidCache.get(uid);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    uidCache.delete(uid);   // evict stale entry
-    return null;
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+async function fetchWithProxy(url){
+  const now=Date.now();
+  if(CACHE[url]&&now-CACHE[url].ts<TTL)return CACHE[url].data;
+  for(const proxy of PROXIES){
+    try{
+      const res=await fetch(proxy(url),{headers:{'X-User-Agent':'EnkaVerse/3.0'}});
+      if(!res.ok)continue;
+      const text=await res.text();
+      let data;try{data=JSON.parse(text);}catch{continue;}
+      CACHE[url]={ts:now,data};return data;
+    }catch{}
   }
-  return entry.data;        // fresh hit
+  throw new Error('All proxies failed. Check UID or try again later.');
+}
+async function loadMeta(){
+  if(!charMeta)charMeta=await fetchWithProxy(CHAR_JSON);
+  if(!locData) locData =await fetchWithProxy(LOC_JSON);
+}
+const getLocText=hash=>{const h=String(hash);return locData?.['en']?.[h]||locData?.[h]||null;};
+const getCharData=id=>charMeta?.[String(id)]||null;
+const getCharName=id=>getLocText(getCharData(id)?.NameTextMapHash)||`#${id}`;
+const getSideIcon=id=>{const d=getCharData(id);return d?.SideIconName?`${ENKA_CDN}/${d.SideIconName}.png`:null;};
+const getElement =id=>getCharData(id)?.Element||null;
+const getSkillOrder=id=>getCharData(id)?.SkillOrder||[];
+const fmtFight=(v,isPct)=>isPct?(v*100).toFixed(1)+'%':Math.round(v).toLocaleString();
+const fmtProp=(key,val)=>PCT_PROPS.has(key)?val.toFixed(1)+'%':Math.round(val).toLocaleString();
+const calcCV=fpm=>parseFloat(fpm['20']||0)*100*2+parseFloat(fpm['22']||0)*100;
+const escHtml=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function cvClass(cv){if(cv>=220)return'god';if(cv>=180)return'high';if(cv>=130)return'mid';return'low';}
+function cvPercentile(cv){
+  if(cv>=280)return{label:'Top 1%',tier:'god'};if(cv>=250)return{label:'Top 3%',tier:'god'};
+  if(cv>=220)return{label:'Top 8%',tier:'high'};if(cv>=200)return{label:'Top 15%',tier:'high'};
+  if(cv>=180)return{label:'Top 25%',tier:'mid'};if(cv>=160)return{label:'Top 35%',tier:'mid'};
+  if(cv>=130)return{label:'Top 55%',tier:'low'};if(cv>=100)return{label:'Top 70%',tier:'low'};
+  return{label:'Common',tier:'low'};
+}
+function setStatus(msg,type=''){const el=document.getElementById('status');el.className='status '+type;el.innerHTML=msg;}
+
+// ═══════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════
+function switchTab(id,btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-'+id).classList.add('active');
 }
 
-function setCached(uid, data, ttlSeconds) {
-  uidCache.set(uid, {
-    data,
-    expiresAt: Date.now() + (ttlSeconds ?? 60) * 1000,
+// ═══════════════════════════════════════════════════════════
+// FETCH PROFILE
+// ═══════════════════════════════════════════════════════════
+async function fetchProfile(){
+  const uid=document.getElementById('uid-input').value.trim();
+  if(!/^\d{9,10}$/.test(uid)){setStatus('⚠ Enter a valid 9–10 digit UID.','error');return;}
+  const btn=document.getElementById('search-btn');
+  btn.disabled=true;
+  setStatus('<span class="spinner"></span> Loading profile…','loading');
+  document.getElementById('chars-app').innerHTML='';
+  try{
+    await loadMeta();
+    const data=await fetchWithProxy(`https://enka.network/api/uid/${uid}`);
+    loadedChars=data.avatarInfoList||[];
+    renderCharsTab(data);
+    renderTeamTab();
+    renderDamageTab();
+    setStatus('✓ Profile loaded — '+loadedChars.length+' characters','ok');
+  }catch(e){setStatus('✗ '+(e.message||'Unknown error'),'error');}
+  finally{btn.disabled=false;}
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHARACTERS TAB
+// ═══════════════════════════════════════════════════════════
+function renderCharsTab(data){
+  const app=document.getElementById('chars-app');
+  const pi=data.playerInfo||{};
+  const chars=loadedChars;
+
+  // player card
+  app.innerHTML=`
+    <div class="player-card">
+      <div class="player-avatar">🎮</div>
+      <div>
+        <div class="player-name">${escHtml(pi.nickname||'Traveler')}</div>
+        <div class="player-meta">
+          <span>AR <b>${pi.level||'?'}</b></span>
+          <span>WL <b>${pi.worldLevel??'?'}</b></span>
+          <span>Abyss <b>${pi.towerFloorIndex||'?'}-${pi.towerLevelIndex||'?'}</b></span>
+          <span>Showcase <b>${chars.length}</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="chars-grid" id="chars-grid"></div>`;
+
+  if(!chars.length){
+    document.getElementById('chars-grid').innerHTML=`<div class="empty-state" style="grid-column:1/-1"><div class="big">🌸</div><p>No characters on showcase.</p></div>`;
+    return;
+  }
+
+  const grid=document.getElementById('chars-grid');
+  chars.forEach(c=>{
+    const id=c.avatarId;
+    const fpm=c.fightPropMap||{};
+    const lvl=c.propMap?.['4001']?.val||c.propMap?.['4001']?.ival||'?';
+    const consts=(c.talentIdList||[]).length;
+    const name=getCharName(id);
+    const icon=getSideIcon(id);
+    const elem=getElement(id);
+    const cv=calcCV(fpm);
+    const cc=cvClass(cv);
+    const elemColor=ELEM_COLOR[elem]||'#aaa';
+    const card=document.createElement('div');
+    card.className='char-thumb';
+    card.onclick=()=>openModal(c);
+    card.innerHTML=`
+      <div class="char-thumb-banner" style="background:linear-gradient(135deg,#0e1520,${elemColor}22)">
+        ${icon?`<img class="char-thumb-art" src="${icon}" loading="lazy" onerror="this.style.display='none'">`:''}
+        <div class="char-thumb-elem" style="background:${elemColor}22;border-color:${elemColor}44">${ELEM_EMOJI[elem]||'✦'}</div>
+      </div>
+      <div class="char-thumb-body">
+        <div class="char-thumb-name">${escHtml(name)}</div>
+        <div class="char-thumb-row">
+          <span class="char-thumb-lvl">LV ${lvl}</span>
+          <span class="char-thumb-cv cv-${cc}">${cv.toFixed(0)} CV</span>
+        </div>
+        <div class="char-thumb-consts">${Array.from({length:6},(_,i)=>`<div class="cdot${i<consts?' on':''}"></div>`).join('')}</div>
+      </div>`;
+    grid.appendChild(card);
   });
 }
 
-function getCacheStatus(uid) {
-  const entry = uidCache.get(uid);
-  if (!entry || Date.now() > entry.expiresAt) return null;
-  const secondsLeft = Math.ceil((entry.expiresAt - Date.now()) / 1000);
-  return { secondsLeft, expiresAt: new Date(entry.expiresAt).toLocaleTimeString() };
-}
+// ═══════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════
+function openModal(c){
+  const id=c.avatarId;
+  const fpm=c.fightPropMap||{};
+  const lvl=c.propMap?.['4001']?.val||c.propMap?.['4001']?.ival||'?';
+  const consts=(c.talentIdList||[]).length;
+  const name=getCharName(id);
+  const icon=getSideIcon(id);
+  const elem=getElement(id);
+  const cv=calcCV(fpm);
+  const cvPct=cvPercentile(cv);
+  const cvCls=cvClass(cv);
+  const elemColor=ELEM_COLOR[elem]||'#aaa';
 
-/* ═══════════════════════════════════════════════════════════════════════
-  REQUIREMENT 2: CUSTOM USER-AGENT + CORS PROXY FETCH
-  
-  Browser security FORBIDS setting the `User-Agent` header directly
-  (it's a "forbidden header name" in the Fetch spec — browsers silently
-  ignore it). The correct solutions are:
-    A) Use a backend proxy that injects User-Agent before forwarding
-    B) Pass it as a custom header (e.g. X-User-Agent) for proxies that support it
-    C) For direct enka.network calls from a Node.js backend, set it normally
-
-  Here we: (a) attempt to send it as a header so it forwards if the proxy
-  supports it, and (b) document the limitation transparently.
-═══════════════════════════════════════════════════════════════════════ */
-async function fetchWithProxy(targetUrl) {
-  let lastError = null;
-
-  for (const buildProxy of CORS_PROXIES) {
-    const proxyUrl = buildProxy(targetUrl);
-    try {
-      const res = await fetch(proxyUrl, {
-        headers: {
-          "Accept":       "application/json",
-          // allorigins.win forwards headers whose names start with X-
-          // so X-User-Agent reaches the origin as a custom header
-          "X-User-Agent": USER_AGENT,
-        },
-      });
-
-      if (!res.ok) {
-        const msg = HTTP_ERRORS[res.status] ?? `HTTP ${res.status}`;
-        // 4xx from Enka are definitive — stop trying other proxies
-        if (res.status >= 400 && res.status < 500) throw new Error(msg);
-        throw new Error(msg);  // 5xx — try next proxy
-      }
-
-      const text = await res.text();
-      if (!text?.trim()) throw new Error("Empty response body");
-      return text;
-
-    } catch (err) {
-      // Rethrow authoritative errors immediately (UID not found, etc.)
-      if (err.message && HTTP_ERRORS[Number(err.message.match(/\d{3}/)?.[0])]) throw err;
-      lastError = err;
-      // Otherwise fall through to next proxy
-    }
-  }
-
-  throw new Error(lastError?.message ?? "All CORS proxies failed. Try again shortly.");
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-  REQUIREMENT 3 — PART A: ASSET STORE LOADER
-  Loads two JSON files from the official EnkaNetwork/API-docs repository:
-    • store/characters.json  — avatarId → { Element, SideIconName,
-                                NameTextMapHash, SkillOrder, Skills,
-                                Consts, QualityType, WeaponType }
-    • store/loc.json (EN)    — NameTextMapHash (as string key) → name
-
-  These are the authoritative ID-to-name mapping tables.
-═══════════════════════════════════════════════════════════════════════ */
-const assetStore = {
-  characters: null,   // Map<string avatarId, CharacterStoreDef>
-  loc: null,          // Map<string hash, string name>
-  loaded: false,
-  loading: false,
-  error: null,
-};
-
-async function loadAssetStore() {
-  if (assetStore.loaded || assetStore.loading) return;
-  assetStore.loading = true;
-  try {
-    const [charText, locText] = await Promise.all([
-      fetchWithProxy(`${ENKA_STORE}/characters.json`),
-      fetchWithProxy(`${ENKA_STORE}/loc.json`),
-    ]);
-
-    const charRaw = JSON.parse(charText);
-    const locRaw  = JSON.parse(locText);
-
-    // loc.json structure: { "en": { "hashAsString": "Name", ... }, "zh-CN": {...}, ... }
-    // We want English ("en") — fall back to top-level if "en" key is absent
-    const locEn = locRaw?.en ?? locRaw;
-
-    assetStore.characters = charRaw;   // keep as plain object (id string → def)
-    assetStore.loc        = locEn;     // keep as plain object (hash string → name)
-    assetStore.loaded     = true;
-  } catch (e) {
-    assetStore.error = e.message;
-  } finally {
-    assetStore.loading = false;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-  REQUIREMENT 3 — PART B: ID RESOLUTION HELPERS
-═══════════════════════════════════════════════════════════════════════ */
-
-// Resolve any NameTextMapHash → English name string
-function resolveLocName(hash) {
-  if (!hash || !assetStore.loc) return null;
-  return assetStore.loc[String(hash)] ?? null;
-}
-
-// avatarId (number|string) → { name, element, iconUrl, sideIconUrl, qualityType, weaponType }
-function resolveCharacter(avatarId) {
-  const def = assetStore.characters?.[String(avatarId)];
-  if (!def) return null;
-
-  const ELEMENT_MAP = {
-    Fire: "Pyro",  Ice: "Cryo", Electric: "Electro",  Wind: "Anemo",
-    Water: "Hydro", Rock: "Geo", Grass: "Dendro",
-    // Also handle already-mapped keys
-    Pyro:"Pyro", Cryo:"Cryo", Electro:"Electro", Anemo:"Anemo",
-    Hydro:"Hydro", Geo:"Geo", Dendro:"Dendro",
-  };
-
-  return {
-    name:        resolveLocName(def.NameTextMapHash) ?? `Character ${avatarId}`,
-    element:     ELEMENT_MAP[def.Element] ?? def.Element ?? "Anemo",
-    sideIconUrl: def.SideIconName ? `${ENKA_CDN}/${def.SideIconName}.png` : null,
-    iconUrl:     def.SideIconName ? `${ENKA_CDN}/${def.SideIconName.replace("_Side", "")}.png` : null,
-    qualityType: def.QualityType ?? "",
-    weaponType:  def.WeaponType ?? "",
-    skillOrder:  def.SkillOrder ?? [],
-    skills:      def.Skills ?? {},
-    consts:      def.Consts ?? [],
-    rarity:      def.QualityType === "QUALITY_ORANGE" ? 5 : def.QualityType === "QUALITY_PURPLE" ? 4 : 3,
-  };
-}
-
-// flat.nameTextMapHash + flat.icon → { name, iconUrl }
-function resolveEquip(flat) {
-  if (!flat) return { name: "Unknown", iconUrl: null };
-  return {
-    name:    resolveLocName(flat.nameTextMapHash) ?? "Unknown",
-    iconUrl: flat.icon ? `${ENKA_CDN}/${flat.icon}.png` : null,
-  };
-}
-
-// flat.setNameTextMapHash → artifact set name
-function resolveSetName(flat) {
-  return resolveLocName(flat?.setNameTextMapHash) ?? "Unknown Set";
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-  FIGHT PROP METADATA TABLE
-  Used to format stat values correctly (flat vs. percent)
-═══════════════════════════════════════════════════════════════════════ */
-const FIGHT_PROP = {
-  FIGHT_PROP_BASE_HP:            { label: "Base HP",          pct: false },
-  FIGHT_PROP_HP:                 { label: "HP",               pct: false },
-  FIGHT_PROP_HP_PERCENT:         { label: "HP%",              pct: true  },
-  FIGHT_PROP_BASE_ATTACK:        { label: "Base ATK",         pct: false },
-  FIGHT_PROP_ATTACK:             { label: "ATK",              pct: false },
-  FIGHT_PROP_ATTACK_PERCENT:     { label: "ATK%",             pct: true  },
-  FIGHT_PROP_BASE_DEFENSE:       { label: "Base DEF",         pct: false },
-  FIGHT_PROP_DEFENSE:            { label: "DEF",              pct: false },
-  FIGHT_PROP_DEFENSE_PERCENT:    { label: "DEF%",             pct: true  },
-  FIGHT_PROP_CRITICAL:           { label: "Crit Rate",        pct: true  },
-  FIGHT_PROP_CRITICAL_HURT:      { label: "Crit DMG",         pct: true  },
-  FIGHT_PROP_CHARGE_EFFICIENCY:  { label: "Energy Recharge",  pct: true  },
-  FIGHT_PROP_ELEMENT_MASTERY:    { label: "Elemental Mastery",pct: false },
-  FIGHT_PROP_HEAL_ADD:           { label: "Healing Bonus",    pct: true  },
-  FIGHT_PROP_FIRE_ADD_HURT:      { label: "Pyro DMG%",        pct: true  },
-  FIGHT_PROP_ELEC_ADD_HURT:      { label: "Electro DMG%",     pct: true  },
-  FIGHT_PROP_WATER_ADD_HURT:     { label: "Hydro DMG%",       pct: true  },
-  FIGHT_PROP_GRASS_ADD_HURT:     { label: "Dendro DMG%",      pct: true  },
-  FIGHT_PROP_WIND_ADD_HURT:      { label: "Anemo DMG%",       pct: true  },
-  FIGHT_PROP_ROCK_ADD_HURT:      { label: "Geo DMG%",         pct: true  },
-  FIGHT_PROP_ICE_ADD_HURT:       { label: "Cryo DMG%",        pct: true  },
-  FIGHT_PROP_PHYSICAL_ADD_HURT:  { label: "Physical DMG%",    pct: true  },
-};
-
-const EQUIP_TYPE_LABELS = {
-  EQUIP_BRACER:   { label: "Flower",  icon: "🌸" },
-  EQUIP_NECKLACE: { label: "Plume",   icon: "🪶" },
-  EQUIP_SHOES:    { label: "Sands",   icon: "⏳" },
-  EQUIP_RING:     { label: "Goblet",  icon: "🏆" },
-  EQUIP_DRESS:    { label: "Circlet", icon: "👑" },
-};
-
-function fmtStatValue(propId, rawValue) {
-  if (rawValue == null) return "—";
-  const meta = FIGHT_PROP[propId];
-  if (!meta) return rawValue.toLocaleString();
-  return meta.pct
-    ? `${(rawValue * 100).toFixed(1)}%`
-    : Math.round(rawValue).toLocaleString();
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-  REQUIREMENT 4: SAFE PARSING — avatarInfoList PARSER
-  Every field access is guarded. Missing data falls back to sensible defaults.
-═══════════════════════════════════════════════════════════════════════ */
-function parseWeapon(equipList) {
-  const eq = (equipList ?? []).find(e => e?.flat?.itemType === "ITEM_WEAPON");
-  if (!eq) return null;
-
-  const flat      = eq.flat ?? {};
-  const weapon    = eq.weapon ?? {};
-  const { name, iconUrl } = resolveEquip(flat);
-
-  // Refinement is stored in affixMap: { "randomId": 0-4 } where value = refinement - 1
-  const refinement = weapon.affixMap
-    ? (Object.values(weapon.affixMap)[0] ?? 0) + 1
-    : 1;
-
-  const baseAtk  = flat.weaponStats?.[0]?.statValue ?? 0;
-  const subStat  = flat.weaponStats?.[1] ?? null;
-
-  return {
-    name,
-    iconUrl,
-    rarity:      flat.rankLevel ?? 4,
-    level:       weapon.level ?? 1,
-    ascension:   weapon.promoteLevel ?? 0,
-    refinement,
-    baseAtk:     Math.round(baseAtk),
-    subStatId:   subStat?.appendPropId ?? null,
-    subStatLabel: subStat ? (FIGHT_PROP[subStat.appendPropId]?.label ?? subStat.appendPropId) : null,
-    subStatValue: subStat ? fmtStatValue(subStat.appendPropId, subStat.statValue) : null,
-  };
-}
-
-function parseArtifact(eq) {
-  if (!eq || eq.flat?.itemType !== "ITEM_RELIQUARY") return null;
-
-  const flat     = eq.flat ?? {};
-  const relic    = eq.reliquary ?? {};
-  const { name, iconUrl } = resolveEquip(flat);
-  const setName  = resolveSetName(flat);
-  const equipMeta = EQUIP_TYPE_LABELS[flat.equipType] ?? { label: flat.equipType, icon: "🔮" };
-
-  // Main stat
-  const mainStat = flat.reliquaryMainstat ?? {};
-  const mainId   = mainStat.mainPropId ?? "";
-  const mainVal  = fmtStatValue(mainId, mainStat.statValue);
-  const mainLabel = FIGHT_PROP[mainId]?.label ?? mainId;
-
-  // Sub-stats — calculate CV contribution
-  let cv = 0;
-  const subs = (flat.reliquarySubstats ?? []).map(s => {
-    const propId = s.appendPropId ?? "";
-    const raw    = s.statValue ?? 0;
-    if (propId === "FIGHT_PROP_CRITICAL")      cv += raw * 2;
-    if (propId === "FIGHT_PROP_CRITICAL_HURT") cv += raw;
-    return {
-      propId,
-      label:   FIGHT_PROP[propId]?.label ?? propId,
-      value:   fmtStatValue(propId, raw),
-      rawValue: raw,
-      // Tier scoring: gold = very high rolls, green = good, grey = filler
-      tier: (() => {
-        if (propId === "FIGHT_PROP_CRITICAL"      && raw >= 0.093) return "gold";
-        if (propId === "FIGHT_PROP_CRITICAL_HURT" && raw >= 0.187) return "gold";
-        if (propId === "FIGHT_PROP_CRITICAL"      && raw >= 0.062) return "green";
-        if (propId === "FIGHT_PROP_CRITICAL_HURT" && raw >= 0.124) return "green";
-        if (propId === "FIGHT_PROP_ATTACK_PERCENT"&& raw >= 0.093) return "gold";
-        if (propId === "FIGHT_PROP_ATTACK_PERCENT"&& raw >= 0.058) return "green";
-        if (propId === "FIGHT_PROP_HP_PERCENT"    && raw >= 0.093) return "gold";
-        if (propId === "FIGHT_PROP_DEFENSE_PERCENT"&&raw >= 0.109) return "gold";
-        if (propId === "FIGHT_PROP_CHARGE_EFFICIENCY"&&raw>=0.110) return "gold";
-        if (propId === "FIGHT_PROP_ELEMENT_MASTERY"&& raw >= 40)   return "gold";
-        if (propId === "FIGHT_PROP_ELEMENT_MASTERY"&& raw >= 23)   return "green";
-        return "grey";
-      })(),
-    };
+  // Talents
+  const skillOrder=getSkillOrder(id);
+  const skillMap=c.skillLevelMap||{};
+  const proudExtra=c.proudSkillExtraLevelMap||{};
+  const talLabels=['Normal','Skill','Burst'];
+  const talents=skillOrder.slice(0,3).map((sid,i)=>{
+    const base=skillMap[String(sid)]||'?';
+    const extra=proudExtra[String(sid)]||0;
+    return{label:talLabels[i],val:base,boosted:extra>0};
   });
-  // CV from main stat too
-  if (mainId === "FIGHT_PROP_CRITICAL")      cv += (mainStat.statValue ?? 0) * 2;
-  if (mainId === "FIGHT_PROP_CRITICAL_HURT") cv += (mainStat.statValue ?? 0);
 
-  return {
-    name,
-    setName,
-    iconUrl,
-    type:      equipMeta.label,
-    typeIcon:  equipMeta.icon,
-    rarity:    flat.rankLevel ?? 5,
-    level:     relic.level ?? 0,
-    mainLabel, mainVal,
-    subs,
-    cv:        parseFloat(cv.toFixed(1)),
-  };
-}
+  // Stats — mark CRIT ones
+  const statsHtml=Object.entries(FIGHT_PROPS).map(([k,[lbl,isPct]])=>{
+    const val=fpm[k];if(val===undefined)return'';
+    const isCrit=(k==='20'||k==='22');
+    return`<div class="stat-row"><span class="stat-lbl">${lbl}</span><span class="stat-v${isCrit?' crit':''}">${fmtFight(val,isPct)}</span></div>`;
+  }).join('');
 
-function parseFightProps(fightPropMap) {
-  const fp = fightPropMap ?? {};
-  // Key names in fightPropMap are numeric strings that correspond to prop IDs
-  // but we also get named keys like FIGHT_PROP_HP. We normalize to named.
-  const NUM_TO_NAME = {
-    "1":"FIGHT_PROP_BASE_HP","2":"FIGHT_PROP_HP","3":"FIGHT_PROP_HP_PERCENT",
-    "4":"FIGHT_PROP_BASE_ATTACK","5":"FIGHT_PROP_ATTACK","6":"FIGHT_PROP_ATTACK_PERCENT",
-    "7":"FIGHT_PROP_BASE_DEFENSE","8":"FIGHT_PROP_DEFENSE","9":"FIGHT_PROP_DEFENSE_PERCENT",
-    "20":"FIGHT_PROP_CRITICAL","22":"FIGHT_PROP_CRITICAL_HURT",
-    "23":"FIGHT_PROP_CHARGE_EFFICIENCY","26":"FIGHT_PROP_HEAL_ADD",
-    "27":"FIGHT_PROP_ELEMENT_MASTERY","28":"FIGHT_PROP_ELEMENT_MASTERY",
-    "40":"FIGHT_PROP_FIRE_ADD_HURT","41":"FIGHT_PROP_ELEC_ADD_HURT",
-    "42":"FIGHT_PROP_WATER_ADD_HURT","43":"FIGHT_PROP_GRASS_ADD_HURT",
-    "44":"FIGHT_PROP_WIND_ADD_HURT","45":"FIGHT_PROP_ROCK_ADD_HURT",
-    "46":"FIGHT_PROP_ICE_ADD_HURT","50":"FIGHT_PROP_PHYSICAL_ADD_HURT",
-  };
-  const named = {};
-  for (const [k, v] of Object.entries(fp)) {
-    const name = isNaN(k) ? k : NUM_TO_NAME[k];
-    if (name) named[name] = v;
-  }
-  const g = (key) => named[key] ?? 0;
-  return {
-    hp:        Math.round(g("FIGHT_PROP_HP")),
-    baseHp:    Math.round(g("FIGHT_PROP_BASE_HP")),
-    atk:       Math.round(g("FIGHT_PROP_ATTACK") + g("FIGHT_PROP_BASE_ATTACK")),
-    def:       Math.round(g("FIGHT_PROP_DEFENSE") + g("FIGHT_PROP_BASE_DEFENSE")),
-    em:        Math.round(g("FIGHT_PROP_ELEMENT_MASTERY")),
-    er:        parseFloat(((g("FIGHT_PROP_CHARGE_EFFICIENCY") || 1) * 100).toFixed(1)),
-    critRate:  parseFloat(((g("FIGHT_PROP_CRITICAL") || 0.05) * 100).toFixed(1)),
-    critDmg:   parseFloat(((g("FIGHT_PROP_CRITICAL_HURT") || 0.5) * 100).toFixed(1)),
-    healBonus: parseFloat(((g("FIGHT_PROP_HEAL_ADD") || 0) * 100).toFixed(1)),
-    raw: named,
-  };
-}
-
-// REQUIREMENT 4: Safe parse of a single avatarInfo entry
-function parseAvatarInfo(avatarInfo) {
-  if (!avatarInfo) return null;
-
-  const avatarId   = avatarInfo.avatarId;
-  const charMeta   = resolveCharacter(avatarId) ?? {
-    name: `Unknown (${avatarId})`, element: "Anemo",
-    sideIconUrl: null, iconUrl: null, rarity: 4,
-    skillOrder: [], skills: {}, consts: [],
-  };
-
-  // Level / ascension from propMap
-  const propMap   = avatarInfo.propMap ?? {};
-  const level     = parseInt(propMap["4001"]?.val ?? propMap["4001"]?.ival ?? 1, 10);
-  const ascension = parseInt(propMap["1002"]?.val ?? propMap["1002"]?.ival ?? 0, 10);
-  const xp        = parseInt(propMap["1001"]?.val ?? 0, 10);
-
-  // Constellations = number of unlocked talent IDs
-  const constellation = (avatarInfo.talentIdList ?? []).length;
-  const friendship    = avatarInfo.fetterInfo?.expLevel ?? 1;
-
-  // Skills — skillLevelMap: { skillId: level }
-  const skillLevelMap = avatarInfo.skillLevelMap ?? {};
-  const skills = charMeta.skillOrder.map((skillId, i) => ({
-    skillId,
-    iconKey: charMeta.skills[skillId] ?? null,
-    iconUrl: charMeta.skills[skillId] ? `${ENKA_CDN}/${charMeta.skills[skillId]}.png` : null,
-    level: skillLevelMap[skillId] ?? 1,
-    label: i === 0 ? "Normal Attack" : i === 1 ? "Elemental Skill" : "Elemental Burst",
-  }));
-
-  // Constellations
-  const constIcons = charMeta.consts.map((key, i) => ({
-    key,
-    iconUrl: `${ENKA_CDN}/${key}.png`,
-    unlocked: i < constellation,
-  }));
-
-  // Equipment
-  const equipList = avatarInfo.equipList ?? [];
-  const weapon    = parseWeapon(equipList);
-  const artifacts = equipList
-    .map(parseArtifact)
-    .filter(Boolean);
-
-  // Fight properties
-  const stats = parseFightProps(avatarInfo.fightPropMap);
-  const cv    = parseFloat((stats.critRate * 2 + stats.critDmg - 150).toFixed(1)); // subtract base
-
-  return {
-    avatarId,
-    name:        charMeta.name,
-    element:     charMeta.element,
-    sideIconUrl: charMeta.sideIconUrl,
-    iconUrl:     charMeta.iconUrl,
-    rarity:      charMeta.rarity,
-    weaponType:  charMeta.weaponType,
-    level, ascension, xp, constellation, friendship,
-    skills, constIcons,
-    weapon, artifacts,
-    stats,
-    cv: Math.max(0, cv),
-    buildScore: Math.min(100, Math.round(
-      (Math.max(0, cv) / 280) * 60 +
-      (artifacts.length / 5) * 20 +
-      (weapon ? 10 : 0) + 10
-    )),
-  };
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-  MAIN FETCH FUNCTION — combines all 5 requirements
-═══════════════════════════════════════════════════════════════════════ */
-async function fetchPlayerData(uid, { forceRefresh = false } = {}) {
-  // 1. Validate UID format (7-10 digits)
-  if (!/^\d{7,10}$/.test(String(uid))) {
-    throw new Error("Invalid UID format. Must be 7–10 digits.");
-  }
-
-  // REQUIREMENT 5: Check TTL cache before fetching
-  if (!forceRefresh) {
-    const cached = getCached(uid);
-    if (cached) return { ...cached, fromCache: true };
-  }
-
-  // REQUIREMENT 3: Ensure asset store is loaded before parsing
-  if (!assetStore.loaded && !assetStore.error) {
-    await loadAssetStore();
-  }
-
-  // REQUIREMENT 1 + 2: Fetch via CORS proxy with User-Agent forwarding
-  // Appending ?info per Enka docs to reduce data load if no showcase is set
-  const targetUrl = `${ENKA_API}/${uid}`;
-  const text = await fetchWithProxy(targetUrl);
-
-  // REQUIREMENT 4: Safe JSON parse
-  let raw;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    throw new Error("Failed to parse API response as JSON.");
-  }
-
-  if (!raw || typeof raw !== "object") {
-    throw new Error("Unexpected response shape from Enka.Network.");
-  }
-
-  // REQUIREMENT 4: Safe playerInfo extraction
-  const playerInfo = raw.playerInfo ?? null;
-  const player = playerInfo ? {
-    nickname:     playerInfo.nickname   ?? "Traveler",
-    signature:    playerInfo.signature  ?? "",
-    level:        playerInfo.level      ?? 0,
-    worldLevel:   playerInfo.worldLevel ?? 0,
-    achievementCount: playerInfo.finishAchievementNum ?? 0,
-    towerFloor:   playerInfo.towerFloorIndex ?? 0,
-    towerLevel:   playerInfo.towerLevelIndex ?? 0,
-    nameCardId:   playerInfo.nameCardId ?? 0,
-    nameCardUrl:  playerInfo.nameCardId
-      ? `${ENKA_CDN}/UI_NameCardPic_${playerInfo.nameCardId}_P.png`
-      : null,
-    profilePictureAvatarId: playerInfo.profilePicture?.avatarId ?? null,
-  } : null;
-
-  // REQUIREMENT 4: Safe avatarInfoList extraction
-  const rawAvatarList = Array.isArray(raw.avatarInfoList) ? raw.avatarInfoList : [];
-  const characters = rawAvatarList
-    .map(av => { try { return parseAvatarInfo(av); } catch { return null; } })
-    .filter(Boolean);
-
-  // REQUIREMENT 5: Read ttl from response, store in cache
-  const ttl = typeof raw.ttl === "number" ? raw.ttl : 60;
-  const uid_out = raw.uid ?? String(uid);
-
-  const result = {
-    uid: uid_out,
-    ttl,
-    player,
-    characters,
-    owner: raw.owner ?? null,
-    fromCache: false,
-  };
-
-  setCached(uid, result, ttl);
-  return result;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-  UI — ELEMENT THEME DEFINITIONS
-═══════════════════════════════════════════════════════════════════════ */
-const ELEM = {
-  Pyro:    { p:"#FF4D00",g:"rgba(255,77,0,0.35)",   b:"rgba(255,77,0,0.07)",   e:"🔥" },
-  Cryo:    { p:"#7DF9FF",g:"rgba(125,249,255,0.32)",b:"rgba(125,249,255,0.06)",e:"❄️" },
-  Electro: { p:"#C77DFF",g:"rgba(199,125,255,0.32)",b:"rgba(199,125,255,0.06)",e:"⚡" },
-  Hydro:   { p:"#4CC9F0",g:"rgba(76,201,240,0.32)", b:"rgba(76,201,240,0.06)", e:"💧" },
-  Anemo:   { p:"#80FF72",g:"rgba(128,255,114,0.32)",b:"rgba(128,255,114,0.06)",e:"🌪️" },
-  Geo:     { p:"#E2C880",g:"rgba(226,200,128,0.38)",b:"rgba(226,200,128,0.07)",e:"⛏️" },
-  Dendro:  { p:"#98D631",g:"rgba(152,214,49,0.32)", b:"rgba(152,214,49,0.06)", e:"🌿" },
-};
-
-/* ═══════════════════════════════════════════════════════════════════════
-  UI COMPONENTS
-═══════════════════════════════════════════════════════════════════════ */
-function AnimNum({ target, suffix="", dec=0 }) {
-  const [v, setV] = useState(0);
-  const r = useRef();
-  useEffect(() => {
-    const s = performance.now(), d = 1000;
-    const tick = n => {
-      const p = Math.min((n - s) / d, 1);
-      const e = 1 - Math.pow(1 - p, 3);
-      setV(dec > 0 ? parseFloat((e * target).toFixed(dec)) : Math.round(e * target));
-      if (p < 1) r.current = requestAnimationFrame(tick);
-    };
-    r.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(r.current);
-  }, [target]);
-  return <>{dec > 0 ? v : (v > 999 ? v.toLocaleString() : v)}{suffix}</>;
-}
-
-function StatRow({ label, value, color, pct=false, max }) {
-  const w = max ? Math.min((parseFloat(value) / max) * 100, 100) : null;
-  return (
-    <div style={{ marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontFamily: "'DM Mono',monospace" }}>{label}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: "'DM Mono',monospace" }}>{value}</span>
-      </div>
-      {w !== null && (
-        <div style={{ height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 2 }}>
-          <div style={{ height: "100%", width: `${w}%`, background: color, borderRadius: 2,
-            boxShadow: `0 0 6px ${color}70`, transition: "width 1s cubic-bezier(.22,1,.36,1)" }} />
-        </div>
-      )}
+  // Ranking
+  const pct=cvPct;
+  const barPct=Math.min(100,Math.max(5,(cv/300)*100));
+  const barColor=cvCls==='god'?'var(--rose)':cvCls==='high'?'var(--cyan)':cvCls==='mid'?'var(--gold)':'var(--text-dim)';
+  const tiers=[{t:'god',lbl:'God Tier',range:'CV ≥ 220'},{t:'high',lbl:'High',range:'CV 180–219'},{t:'mid',lbl:'Average',range:'CV 130–179'},{t:'low',lbl:'Common',range:'CV < 130'}];
+  const rankHtml=`
+    <div class="rank-cv-display">
+      <div class="rank-cv-num ${cvCls}">${cv.toFixed(1)}</div>
+      <div class="rank-cv-label">Crit Value</div>
     </div>
-  );
-}
-
-function CharacterCard({ char, onClick, idx }) {
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
-  const [hov, setHov] = useState(false);
-  const ref = useRef();
-  const ec = ELEM[char.element] ?? ELEM.Anemo;
-  const [imgErr, setImgErr] = useState(false);
-
-  return (
-    <div ref={ref}
-      onClick={() => onClick(char)}
-      onMouseMove={e => {
-        const r = ref.current?.getBoundingClientRect();
-        if (!r) return;
-        setTilt({ x: (e.clientY - r.top - r.height / 2) / r.height * 14,
-                  y: -(e.clientX - r.left - r.width / 2) / r.width * 14 });
-      }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => { setHov(false); setTilt({ x: 0, y: 0 }); }}
-      style={{ cursor: "pointer", perspective: 700,
-        animation: `cardIn .5s cubic-bezier(.22,1,.36,1) ${idx * 60}ms both` }}>
-      <div style={{
-        background: `linear-gradient(150deg,rgba(10,10,22,0.97),${ec.b})`,
-        border: `1px solid ${hov ? ec.p + "50" : "rgba(255,255,255,0.07)"}`,
-        borderRadius: 15, padding: 13, position: "relative", overflow: "hidden",
-        transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) ${hov ? "scale(1.04) translateY(-3px)" : ""}`,
-        transition: "transform .12s,border-color .2s,box-shadow .2s",
-        boxShadow: hov ? `0 16px 40px ${ec.g}` : "0 4px 16px rgba(0,0,0,.4)",
-        userSelect: "none",
-      }}>
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:2,
-          background:`linear-gradient(90deg,transparent,${ec.p},transparent)`,opacity:hov?1:.4 }}/>
-        <div style={{ position:"absolute",top:-20,right:-20,width:80,height:80,borderRadius:"50%",
-          background:`radial-gradient(circle,${ec.g},transparent 70%)`,opacity:hov?1:.5 }}/>
-
-        {/* Icon */}
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,position:"relative",zIndex:1 }}>
-          {char.sideIconUrl && !imgErr
-            ? <img src={char.sideIconUrl} alt={char.name} onError={()=>setImgErr(true)}
-                style={{ width:50,height:50,borderRadius:10,objectFit:"cover",
-                  border:`2px solid ${ec.p}45`,boxShadow:`0 0 12px ${ec.g}` }}/>
-            : <div style={{ width:50,height:50,borderRadius:10,display:"flex",alignItems:"center",
-                justifyContent:"center",fontSize:26,background:ec.b,border:`2px solid ${ec.p}45` }}>{ec.e}</div>
-          }
-          <div style={{ textAlign:"right" }}>
-            <div style={{ fontSize:8,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace" }}>SCORE</div>
-            <div style={{ fontSize:18,fontWeight:800,color:ec.p,fontFamily:"'Oxanium',cursive",lineHeight:1 }}>{char.buildScore}</div>
-          </div>
-        </div>
-
-        <h3 style={{ fontSize:13,fontWeight:800,color:"white",margin:"0 0 2px",fontFamily:"'Oxanium',cursive",
-          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",position:"relative",zIndex:1 }}>{char.name}</h3>
-        <div style={{ fontSize:9.5,color:"rgba(255,255,255,0.32)",fontFamily:"'DM Mono',monospace",marginBottom:8,position:"relative",zIndex:1 }}>
-          Lv.{char.level} · C{char.constellation} · {"★".repeat(Math.min(char.rarity,5))}
-        </div>
-
-        <div style={{ display:"flex",gap:5,marginBottom:8,position:"relative",zIndex:1 }}>
-          {[{l:"CR",v:`${char.stats.critRate.toFixed(1)}%`,c:"#FFD700"},
-            {l:"CD",v:`${char.stats.critDmg.toFixed(1)}%`,c:"#FF6B9D"},
-            {l:"CV",v:char.cv.toFixed(1),c:ec.p}].map(s=>(
-            <div key={s.l} style={{flex:1,background:"rgba(255,255,255,0.04)",borderRadius:6,padding:"3px 2px",textAlign:"center"}}>
-              <div style={{fontSize:7.5,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>{s.l}</div>
-              <div style={{fontSize:10.5,fontWeight:700,color:s.c,fontFamily:"'DM Mono',monospace"}}>{s.v}</div>
-            </div>
-          ))}
-        </div>
-
-        {char.weapon && (
-          <div style={{ display:"flex",alignItems:"center",gap:5,position:"relative",zIndex:1,
-            borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:7 }}>
-            <span style={{ fontSize:11 }}>⚔️</span>
-            <span style={{ fontSize:9,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace",
-              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1 }}>{char.weapon.name}</span>
-            <span style={{ fontSize:9,color:"#E2C880",fontFamily:"'DM Mono',monospace",flexShrink:0 }}>R{char.weapon.refinement}</span>
-          </div>
-        )}
-      </div>
+    <div class="rank-bar-wrap">
+      <div class="rank-bar-label"><span>0</span><span>150</span><span>300</span></div>
+      <div class="rank-bar-track"><div class="rank-bar-fill" style="width:${barPct}%;background:${barColor}"></div></div>
     </div>
-  );
-}
+    <div class="rank-tier-list">
+      ${tiers.map(t=>`<div class="rank-tier rt-${t.t}${cvCls===t.t?' active':''}"><span>${t.lbl}</span><span style="opacity:.7">${t.range}</span></div>`).join('')}
+    </div>
+    <div style="margin-top:.8rem;text-align:center;font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-dim)">
+      Estimated rank: <span style="color:${barColor};font-weight:600">${pct.label}</span>
+    </div>`;
 
-function CharacterModal({ char, onClose }) {
-  const [tab, setTab] = useState("stats");
-  const ec = ELEM[char.element] ?? ELEM.Anemo;
-  const [imgErr, setImgErr] = useState(false);
-  const tierC = { gold:"#E2C880", green:"#72FF96", grey:"rgba(255,255,255,0.3)" };
+  // Artifacts
+  const equips=c.equipList||[];
+  const artMap={};
+  equips.filter(e=>e.reliquary||e.flat?.itemType==='ITEM_RELIQUARY').forEach(a=>{if(a.flat?.equipType)artMap[a.flat.equipType]=a;});
+  const artsHtml=SLOT_ORDER.map(slot=>{
+    const a=artMap[slot];
+    if(!a)return`<div class="art-item" style="opacity:.35"><div class="art-ph">${SLOT_EMOJI[slot]}</div><div class="art-info"><div class="art-slot">${SLOT_NAME[slot]}</div><div class="art-set" style="color:var(--text-dim)">Empty</div></div></div>`;
+    const flat=a.flat||{};
+    const setName=getLocText(flat.setNameTextMapHash)||'Unknown Set';
+    const ms=flat.reliquaryMainstat||{};
+    const msLbl=PROP_NAME[ms.mainPropId]||'';
+    const msVal=ms.statValue?fmtProp(ms.mainPropId,ms.statValue):'';
+    const artLvl=a.reliquary?.level?`+${a.reliquary.level-1}`:'';
+    const stars='★'.repeat(flat.rankLevel||5);
+    const iconUrl=flat.icon?`${ENKA_CDN}/${flat.icon}.png`:'';
+    const subs=flat.reliquarySubstats||[];
+    const subsHtml=subs.map(s=>{
+      const k=s.appendPropId||'',lbl=PROP_NAME[k]||k,val=fmtProp(k,s.statValue||0);
+      const cls=CRIT_PROPS.has(k)?' crit':k==='FIGHT_PROP_ELEMENT_MASTERY'?' em':'';
+      return`<div class="art-sub"><span class="art-sub-lbl">${escHtml(lbl)}</span><span class="art-sub-val${cls}">${val}</span></div>`;
+    }).join('');
+    const iconHtml=iconUrl?`<img class="art-icon" src="${iconUrl}" loading="lazy" onerror="this.style.display='none';this.insertAdjacentHTML('afterend','<div class=\\'art-ph\\'>${SLOT_EMOJI[slot]}</div>')">`:
+      `<div class="art-ph">${SLOT_EMOJI[slot]}</div>`;
+    return`<div class="art-item">
+      <div class="art-icon-wrap">${iconHtml}<div class="art-stars">${stars}</div></div>
+      <div class="art-info">
+        <div class="art-slot">${SLOT_NAME[slot]} <span style="color:var(--green);font-size:.58rem">${artLvl}</span></div>
+        <div class="art-set">${escHtml(setName)}</div>
+        ${msLbl?`<div class="art-main">${escHtml(msLbl)}: ${msVal}</div>`:''}
+        <div class="art-subs">${subsHtml}</div>
+      </div></div>`;
+  }).join('');
 
-  const statList = [
-    { label:"Max HP",           val:char.stats.hp,       max:45000, color:"#72FF96"  },
-    { label:"ATK",               val:char.stats.atk,      max:5000,  color:"#FF8C42"  },
-    { label:"DEF",               val:char.stats.def,      max:2500,  color:"#4CC9F0"  },
-    { label:"Elemental Mastery", val:char.stats.em,       max:1000,  color:"#C77DFF"  },
-    { label:"Crit Rate",         val:`${char.stats.critRate.toFixed(1)}%`, max:null, color:"#FFD700" },
-    { label:"Crit DMG",          val:`${char.stats.critDmg.toFixed(1)}%`,  max:null, color:"#FF6B9D" },
-    { label:"Energy Recharge",   val:`${char.stats.er.toFixed(1)}%`,        max:null, color:"#80FF72" },
-    { label:"Healing Bonus",     val:`${char.stats.healBonus.toFixed(1)}%`, max:null, color:"#72EFDD" },
-  ];
-
-  return (
-    <div style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.88)",
-      backdropFilter:"blur(24px)",display:"flex",alignItems:"center",justifyContent:"center",
-      padding:16,animation:"fadeIn .2s ease" }} onClick={onClose}>
-      <div style={{ width:"min(95vw,1000px)",maxHeight:"90vh",overflowY:"auto",
-        background:"linear-gradient(145deg,rgba(7,7,17,0.99),rgba(11,11,26,0.99))",
-        border:`1px solid ${ec.p}30`,borderRadius:20,overflow:"hidden",
-        boxShadow:`0 0 80px ${ec.g},0 30px 80px rgba(0,0,0,.7)`,
-        animation:"modalIn .4s cubic-bezier(.22,1,.36,1)" }} onClick={e=>e.stopPropagation()}>
-
-        <div style={{ position:"absolute",top:0,left:0,right:0,height:2,
-          background:`linear-gradient(90deg,transparent,${ec.p},transparent)` }}/>
-        <div style={{ position:"absolute",top:-60,right:-60,width:300,height:300,borderRadius:"50%",
-          background:`radial-gradient(circle,${ec.g},transparent 70%)`,pointerEvents:"none" }}/>
-
-        <button onClick={onClose} style={{ position:"absolute",top:12,right:12,zIndex:10,
-          width:32,height:32,borderRadius:"50%",cursor:"pointer",
-          background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",
-          color:"rgba(255,255,255,0.5)",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
-
-        <div style={{ padding:"22px 22px 0",position:"relative" }}>
-          {/* Header */}
-          <div style={{ display:"flex",gap:14,alignItems:"flex-start",marginBottom:18,flexWrap:"wrap" }}>
-            {char.sideIconUrl && !imgErr
-              ? <img src={char.sideIconUrl} alt={char.name} onError={()=>setImgErr(true)}
-                  style={{ width:70,height:70,borderRadius:14,objectFit:"cover",flexShrink:0,
-                    border:`2px solid ${ec.p}45`,boxShadow:`0 0 20px ${ec.g}` }}/>
-              : <div style={{ width:70,height:70,borderRadius:14,display:"flex",alignItems:"center",
-                  justifyContent:"center",fontSize:36,background:ec.b,border:`2px solid ${ec.p}45`,flexShrink:0 }}>{ec.e}</div>
-            }
-            <div style={{ flex:1,minWidth:180 }}>
-              <div style={{ display:"flex",gap:7,alignItems:"center",flexWrap:"wrap",marginBottom:4 }}>
-                <h2 style={{ fontSize:20,fontWeight:800,color:"white",fontFamily:"'Oxanium',cursive",margin:0 }}>{char.name}</h2>
-                <span style={{ fontSize:9.5,padding:"2px 9px",borderRadius:20,background:`${ec.p}18`,
-                  border:`1px solid ${ec.p}40`,color:ec.p,fontFamily:"'DM Mono',monospace",letterSpacing:.8 }}>{char.element.toUpperCase()}</span>
-              </div>
-              <div style={{ fontSize:10.5,color:"rgba(255,255,255,0.38)",fontFamily:"'DM Mono',monospace",marginBottom:5 }}>
-                Lv.{char.level} · C{char.constellation} · Friendship {char.friendship}
-              </div>
-              <div>{"★".repeat(Math.min(char.rarity,5)).split("").map((s,i)=>(
-                <span key={i} style={{ color:"#E2C880",fontSize:13 }}>★</span>
-              ))}</div>
-            </div>
-            {/* Score ring */}
-            <div style={{ textAlign:"center",flexShrink:0 }}>
-              <svg width={58} height={58} style={{ transform:"rotate(-90deg)" }}>
-                <circle cx={29} cy={29} r={22} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={6}/>
-                <circle cx={29} cy={29} r={22} fill="none" stroke={ec.p} strokeWidth={6} strokeLinecap="round"
-                  strokeDasharray={`${2*Math.PI*22*char.buildScore/100} ${2*Math.PI*22}`}
-                  style={{ filter:`drop-shadow(0 0 5px ${ec.p})` }}/>
-              </svg>
-              <div style={{ fontSize:15,fontWeight:800,color:ec.p,fontFamily:"'Oxanium',cursive",marginTop:-44 }}>{char.buildScore}</div>
-              <div style={{ fontSize:7.5,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace",marginTop:32 }}>SCORE</div>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display:"flex",gap:1,borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-            {["stats","artifacts","skills","consts"].map(t=>(
-              <button key={t} onClick={()=>setTab(t)} style={{ background:"none",border:"none",padding:"6px 14px",
-                cursor:"pointer",fontSize:10.5,letterSpacing:.8,textTransform:"uppercase",fontFamily:"'DM Mono',monospace",
-                color:tab===t?ec.p:"rgba(255,255,255,0.32)",
-                borderBottom:`2px solid ${tab===t?ec.p:"transparent"}`,transition:"all .18s",marginBottom:-1 }}>{t}</button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ padding:"18px 22px 24px" }}>
-
-          {/* STATS TAB */}
-          {tab==="stats" && (
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-              <div>
-                {statList.slice(0,4).map(s=>(
-                  <StatRow key={s.label} label={s.label}
-                    value={typeof s.val==="number" ? s.val.toLocaleString() : s.val}
-                    color={s.color} max={s.max}/>
-                ))}
-              </div>
-              <div>
-                {statList.slice(4).map(s=>(
-                  <StatRow key={s.label} label={s.label} value={s.val} color={s.color}/>
-                ))}
-              </div>
-              {char.weapon && (
-                <div style={{ gridColumn:"1/-1",background:"rgba(255,255,255,0.03)",
-                  border:`1px solid ${ec.p}22`,borderRadius:12,padding:"12px 14px",
-                  display:"flex",gap:12,alignItems:"center" }}>
-                  <div style={{ width:46,height:46,borderRadius:10,flexShrink:0,fontSize:22,
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    background:ec.b,border:`1px solid ${ec.p}32` }}>⚔️</div>
-                  <div style={{ flex:1,minWidth:0 }}>
-                    <div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}>
-                      <span style={{ fontSize:13,fontWeight:700,color:"white",fontFamily:"'Oxanium',cursive" }}>{char.weapon.name}</span>
-                      <span style={{ fontSize:9.5,color:"#E2C880",fontFamily:"'DM Mono',monospace" }}>R{char.weapon.refinement}</span>
-                      <span style={{ fontSize:9.5,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace" }}>Lv.{char.weapon.level}</span>
-                    </div>
-                    {char.weapon.subStatLabel && (
-                      <div style={{ fontSize:10.5,color:"rgba(255,255,255,0.38)",fontFamily:"'DM Mono',monospace",marginTop:2 }}>
-                        {char.weapon.subStatLabel}: {char.weapon.subStatValue}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ textAlign:"right",flexShrink:0 }}>
-                    <div style={{ fontSize:8.5,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace" }}>BASE ATK</div>
-                    <div style={{ fontSize:18,fontWeight:800,color:ec.p,fontFamily:"'Oxanium',cursive" }}>{char.weapon.baseAtk.toLocaleString()}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ARTIFACTS TAB */}
-          {tab==="artifacts" && (
-            char.artifacts.length === 0
-              ? <div style={{ textAlign:"center",color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",padding:40 }}>No artifacts in showcase slot</div>
-              : <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(168px,1fr))",gap:9 }}>
-                  {char.artifacts.map((art,i)=>(
-                    <div key={i} style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",
-                      borderRadius:12,padding:11,position:"relative",overflow:"hidden" }}>
-                      <div style={{ position:"absolute",top:0,left:0,right:0,height:2,
-                        background:`linear-gradient(90deg,transparent,${ec.p},transparent)` }}/>
-                      <div style={{ display:"flex",gap:7,alignItems:"flex-start",marginBottom:7 }}>
-                        <span style={{ fontSize:18,lineHeight:1 }}>{art.typeIcon}</span>
-                        <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ fontSize:8,color:ec.p,fontFamily:"'DM Mono',monospace",letterSpacing:.7,
-                            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{art.setName.toUpperCase()}</div>
-                          <div style={{ fontSize:10.5,color:"rgba(255,255,255,0.8)",fontWeight:700 }}>{art.type}</div>
-                        </div>
-                        <div style={{ textAlign:"right",flexShrink:0 }}>
-                          <div style={{ fontSize:7.5,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace" }}>CV</div>
-                          <div style={{ fontSize:13,fontWeight:800,fontFamily:"'Oxanium',cursive",
-                            color:art.cv>=50?"#E2C880":art.cv>=30?"#72FF96":"rgba(255,255,255,0.38)" }}>{art.cv}</div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize:9.5,color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono',monospace",marginBottom:5 }}>
-                        {art.mainLabel}: {art.mainVal}
-                      </div>
-                      {art.subs.map((s,j)=>(
-                        <div key={j} style={{ display:"flex",justifyContent:"space-between",marginBottom:2.5 }}>
-                          <span style={{ fontSize:9,color:"rgba(255,255,255,0.38)",fontFamily:"'DM Mono',monospace" }}>{s.label}</span>
-                          <span style={{ fontSize:9,fontWeight:700,color:tierC[s.tier],fontFamily:"'DM Mono',monospace" }}>{s.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  <div style={{ gridColumn:"1/-1",background:ec.b,border:`1px solid ${ec.p}22`,
-                    borderRadius:12,padding:12,display:"flex",justifyContent:"space-around",gap:10,flexWrap:"wrap" }}>
-                    {[{l:"TOTAL CV",v:char.artifacts.reduce((s,a)=>s+a.cv,0).toFixed(1),c:"#E2C880"},
-                      {l:"BUILD SCORE",v:`${char.buildScore}/100`,c:ec.p},
-                      {l:"GRADE",v:char.buildScore>=92?"S+":char.buildScore>=82?"S":char.buildScore>=70?"A":"B",
-                        c:char.buildScore>=82?"#E2C880":"#72FF96"}
-                    ].map(s=>(
-                      <div key={s.l} style={{ textAlign:"center" }}>
-                        <div style={{ fontSize:8,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace",letterSpacing:.8 }}>{s.l}</div>
-                        <div style={{ fontSize:20,fontWeight:800,color:s.c,fontFamily:"'Oxanium',cursive" }}>{s.v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-          )}
-
-          {/* SKILLS TAB */}
-          {tab==="skills" && (
-            <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
-              {char.skills.length === 0
-                ? <div style={{ textAlign:"center",color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",padding:36 }}>No skill data available</div>
-                : char.skills.map((sk,i)=>(
-                  <div key={i} style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",
-                    borderRadius:12,padding:"12px 14px",display:"flex",gap:13,alignItems:"center" }}>
-                    {sk.iconUrl
-                      ? <img src={sk.iconUrl} alt={sk.label}
-                          style={{ width:44,height:44,borderRadius:10,flexShrink:0,objectFit:"cover",
-                            background:ec.b,border:`1px solid ${ec.p}32` }}
-                          onError={e=>{e.target.style.display="none";}}/>
-                      : <div style={{ width:44,height:44,borderRadius:10,flexShrink:0,fontSize:20,
-                          display:"flex",alignItems:"center",justifyContent:"center",background:ec.b,border:`1px solid ${ec.p}32` }}>
-                          {["⚔️","🌀","💥"][i]}
-                        </div>}
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:12.5,fontWeight:700,color:"white",fontFamily:"'Oxanium',cursive" }}>{sk.label}</div>
-                      <div style={{ fontSize:9.5,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace",marginTop:1 }}>Skill ID: {sk.skillId}</div>
-                    </div>
-                    <div style={{ width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",
-                      background:sk.level>=9?`${ec.p}22`:"rgba(255,255,255,0.06)",
-                      border:`1px solid ${sk.level>=9?ec.p+"55":"rgba(255,255,255,0.1)"}`,
-                      color:sk.level>=9?ec.p:"rgba(255,255,255,0.45)",
-                      fontSize:13,fontWeight:800,fontFamily:"'Oxanium',cursive" }}>{sk.level}</div>
-                  </div>
-                ))
-              }
-            </div>
-          )}
-
-          {/* CONSTELLATIONS TAB */}
-          {tab==="consts" && (
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-              {char.constIcons.length === 0
-                ? <div style={{ gridColumn:"1/-1",textAlign:"center",color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",padding:36 }}>No constellation data available</div>
-                : char.constIcons.map((c,i)=>(
-                  <div key={i} style={{ background:c.unlocked?ec.b:"rgba(255,255,255,0.02)",
-                    border:`1px solid ${c.unlocked?ec.p+"40":"rgba(255,255,255,0.07)"}`,
-                    borderRadius:12,padding:12,display:"flex",flexDirection:"column",alignItems:"center",gap:8 }}>
-                    <img src={c.iconUrl} alt={`C${i+1}`}
-                      style={{ width:44,height:44,borderRadius:10,objectFit:"cover",
-                        filter:c.unlocked?"none":"grayscale(1) brightness(0.35)",
-                        boxShadow:c.unlocked?`0 0 12px ${ec.g}`:"none" }}
-                      onError={e=>{ e.target.src=""; e.target.style.display="none"; }}/>
-                    <div style={{ fontSize:11,fontWeight:700,color:c.unlocked?ec.p:"rgba(255,255,255,0.2)",fontFamily:"'Oxanium',cursive" }}>C{i+1}</div>
-                  </div>
-                ))
-              }
-            </div>
-          )}
+  document.getElementById('modal-content').innerHTML=`
+    <div class="modal-banner" style="background:linear-gradient(135deg,#0d1520,${elemColor}28)">
+      <div class="modal-banner-bg"></div>
+      ${icon?`<img class="modal-banner-art" src="${icon}" loading="lazy" onerror="this.style.display='none'">`:''}
+      <div class="modal-banner-info">
+        <div class="modal-char-name">${escHtml(name)}</div>
+        <div class="modal-char-meta">
+          <span>${ELEM_EMOJI[elem]||''} ${elem||''}</span>
+          <span>LV ${lvl}</span>
+          <span>C${consts}</span>
+          <span style="color:var(--gold)">${Array.from({length:6},(_,i)=>i<consts?'◆':'◇').join('')}</span>
         </div>
       </div>
     </div>
-  );
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-section-title">Talents</div>
+        ${talents.map(t=>`
+          <div class="talent-row">
+            <span class="talent-name">${t.label}</span>
+            <span class="talent-val${t.boosted?' boosted':''}">
+              ${t.val}${t.boosted?`<span class="talent-boost-badge">+C</span>`:''}
+            </span>
+          </div>`).join('')}
+        <div style="height:.5rem"></div>
+        <div class="modal-section-title" style="margin-top:.5rem">Stats</div>
+        ${statsHtml}
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">Artifacts</div>
+        ${artsHtml}
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">Rankings</div>
+        ${rankHtml}
+      </div>
+    </div>`;
+
+  document.getElementById('modal-overlay').classList.add('open');
+  document.body.style.overflow='hidden';
 }
+function closeModal(){document.getElementById('modal-overlay').classList.remove('open');document.body.style.overflow='';}
+function closeModalOnBg(e){if(e.target===document.getElementById('modal-overlay'))closeModal();}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
-/* ═══════════════════════════════════════════════════════════════════════
-  ASSET STATUS INDICATOR — shows loading state of store JSONs
-═══════════════════════════════════════════════════════════════════════ */
-function AssetStatusBadge({ assetReady, assetError }) {
-  if (assetReady) return (
-    <div style={{ display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#72FF96",
-      fontFamily:"'DM Mono',monospace",background:"rgba(114,255,150,0.08)",
-      border:"1px solid rgba(114,255,150,0.2)",borderRadius:20,padding:"3px 10px" }}>
-      <span style={{ width:5,height:5,borderRadius:"50%",background:"#72FF96",display:"inline-block" }}/>
-      Asset store loaded
-    </div>
-  );
-  if (assetError) return (
-    <div style={{ display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#FF8080",
-      fontFamily:"'DM Mono',monospace",background:"rgba(255,80,80,0.07)",
-      border:"1px solid rgba(255,80,80,0.2)",borderRadius:20,padding:"3px 10px" }}>
-      ⚠ Asset store failed — names from fallback map
-    </div>
-  );
-  return (
-    <div style={{ display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"rgba(255,255,255,0.35)",
-      fontFamily:"'DM Mono',monospace",background:"rgba(255,255,255,0.04)",
-      border:"1px solid rgba(255,255,255,0.08)",borderRadius:20,padding:"3px 10px",
-      animation:"pulse 2s ease-in-out infinite" }}>
-      ⟳ Loading asset store…
-    </div>
-  );
-}
+// ═══════════════════════════════════════════════════════════
+// TEAM BUILDER
+// ═══════════════════════════════════════════════════════════
+function renderTeamTab(){
+  const app=document.getElementById('team-app');
+  if(!loadedChars.length){
+    app.innerHTML=`<div class="empty-state"><div class="big">⚔️</div><p>Load a UID first.</p></div>`;return;
+  }
 
-/* ═══════════════════════════════════════════════════════════════════════
-  MAIN APP
-═══════════════════════════════════════════════════════════════════════ */
-export default function App() {
-  const [inputUid, setInputUid]     = useState("");
-  const [loading,  setLoading]      = useState(false);
-  const [progress, setProgress]     = useState(0);
-  const [error,    setError]        = useState("");
-  const [result,   setResult]       = useState(null);
-  const [selected, setSelected]     = useState(null);
-  const [elemFilter, setElemFilter] = useState("All");
-  const [cacheStatus, setCacheStatus] = useState(null);
-  const [assetReady, setAssetReady] = useState(false);
-  const [assetError, setAssetError] = useState(false);
+  // Build slots HTML
+  const slotsHtml=Array.from({length:4},(_,i)=>{
+    const cid=team[i];
+    if(!cid)return`<div class="team-slot" onclick="openPicker(${i})"><div class="slot-placeholder">+</div><div class="slot-placeholder-text">Add Hero</div></div>`;
+    const c=loadedChars.find(x=>x.avatarId===cid);
+    if(!c)return`<div class="team-slot" onclick="openPicker(${i})"><div class="slot-placeholder">+</div></div>`;
+    const icon=getSideIcon(cid);
+    const name=getCharName(cid);
+    const fpm=c.fightPropMap||{};
+    const cv=calcCV(fpm);
+    const cc=cvClass(cv);
+    return`<div class="team-slot filled">
+      <button class="slot-remove" onclick="removeFromTeam(${i})">✕</button>
+      ${icon?`<img class="slot-art" src="${icon}" loading="lazy" onerror="this.style.display='none'">`:
+        `<div style="font-size:2rem">🗡️</div>`}
+      <div class="slot-name">${escHtml(name)}</div>
+      <div class="slot-cv cv-${cc}">${cv.toFixed(0)} CV</div>
+    </div>`;
+  }).join('');
 
-  // Load asset store on mount
-  useEffect(() => {
-    loadAssetStore().then(() => {
-      setAssetReady(assetStore.loaded);
-      setAssetError(!!assetStore.error);
-    });
-  }, []);
-
-  const doSearch = useCallback(async (uid, force = false) => {
-    const target = (uid ?? inputUid).trim();
-    if (!target) return;
-    setLoading(true); setProgress(0); setError(""); setCacheStatus(null);
-
-    const ticker = setInterval(() => setProgress(p => Math.min(p + Math.random() * 14, 82)), 220);
-
-    try {
-      const data = await fetchPlayerData(target, { forceRefresh: force });
-      clearInterval(ticker); setProgress(100);
-      setResult(data);
-      setElemFilter("All");
-      if (data.fromCache) {
-        setCacheStatus(getCacheStatus(target));
-      }
-      setTimeout(() => setLoading(false), 300);
-    } catch (e) {
-      clearInterval(ticker);
-      setLoading(false);
-      setError(e.message ?? "Unknown error");
+  // Element resonance
+  const teamElems=team.filter(Boolean).map(id=>getElement(id)).filter(Boolean);
+  const elemCount={};teamElems.forEach(e=>{elemCount[e]=(elemCount[e]||0)+1;});
+  const resonances=[];
+  Object.entries(elemCount).forEach(([el,cnt])=>{
+    if(cnt>=2){
+      const bonuses={Fire:'ATK +25%',Water:'HP +25%',Electric:'ER +15%',Wind:'Swirl DMG +40%',Ice:'CRIT Rate +15%',Rock:'Shield strength +15%',Grass:'EM +50'};
+      resonances.push({el,emoji:ELEM_EMOJI[el],color:ELEM_COLOR[el],bonus:bonuses[el]||'Resonance active'});
     }
-  }, [inputUid]);
+  });
 
-  const characters = result?.characters ?? [];
-  const elements   = ["All", ...new Set(characters.map(c => c.element))];
-  const filtered   = elemFilter === "All" ? characters : characters.filter(c => c.element === elemFilter);
+  const resonHtml=resonances.length
+    ?resonances.map(r=>`<div class="team-elem-chip" style="background:${r.color}15;border-color:${r.color}40;color:${r.color}">${r.emoji} ${r.el}: <strong style="margin-left:.3rem">${r.bonus}</strong></div>`).join('')
+    :`<span style="font-family:'DM Mono',monospace;font-size:.65rem;color:var(--text-dim)">Add 2 same-element characters for resonance.</span>`;
 
-  const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Oxanium:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-    *{box-sizing:border-box} body{margin:0;background:#04040E;-webkit-font-smoothing:antialiased}
-    ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-track{background:rgba(255,255,255,0.02)}
-    ::-webkit-scrollbar-thumb{background:rgba(226,200,128,0.2);border-radius:3px}
-    input::placeholder{color:rgba(255,255,255,0.18)}
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-    @keyframes modalIn{from{opacity:0;transform:translateY(24px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes cardIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
-    @keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
-    @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-    @keyframes aurora{0%{transform:translate(0,0)}50%{transform:translate(30px,20px)}100%{transform:translate(0,0)}}
-  `;
+  app.innerHTML=`
+    <p class="team-intro">Build your team of up to 4 characters. Matching elements unlock resonance bonuses.</p>
+    <div class="team-slots">${slotsHtml}</div>
+    <div class="team-elem-banner">
+      <div class="team-elem-title">⚡ Element Resonance</div>
+      <div class="team-elems">${resonHtml}</div>
+    </div>
+    <div class="picker-title">Available Characters</div>
+    <div class="picker-grid">
+      ${loadedChars.map(c=>{
+        const id=c.avatarId;
+        const icon=getSideIcon(id);
+        const name=getCharName(id);
+        const fpm=c.fightPropMap||{};
+        const cv=calcCV(fpm);
+        const cc=cvClass(cv);
+        const inTeam=team.includes(id);
+        return`<div class="picker-card${inTeam?' in-team':''}" onclick="${inTeam?'':'addToTeam('+id+')'}">
+          ${icon?`<img class="picker-icon" src="${icon}" loading="lazy" onerror="this.style.display='none'">`:
+            `<div class="picker-icon" style="display:flex;align-items:center;justify-content:center;font-size:1.2rem">${ELEM_EMOJI[getElement(id)]||'✦'}</div>`}
+          <div class="picker-info">
+            <div class="picker-name">${escHtml(name)}</div>
+            <div class="picker-cv cv-${cc}">${cv.toFixed(0)} CV${inTeam?' · In Team':''}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
 
-  return (
-    <div style={{ minHeight:"100vh",background:"#04040E",color:"white",fontFamily:"'Oxanium',cursive" }}>
-      <style>{css}</style>
+function addToTeam(avatarId){
+  const slot=team.indexOf(null);
+  if(slot===-1){alert('Team is full! Remove a character first.');return;}
+  if(team.includes(avatarId))return;
+  team[slot]=avatarId;
+  renderTeamTab();
+  renderDamageTab();
+}
+function removeFromTeam(i){
+  if(dmgSelectedId===team[i])dmgSelectedId=null;
+  team[i]=null;
+  renderTeamTab();
+  renderDamageTab();
+}
+function openPicker(i){/* clicking empty slot = same as clicking picker row which calls addToTeam */}
 
-      {/* Aurora blobs */}
-      <div style={{ position:"fixed",inset:0,zIndex:0,pointerEvents:"none",overflow:"hidden" }}>
-        <div style={{ position:"absolute",top:"5%",left:"5%",width:500,height:500,borderRadius:"50%",
-          background:"radial-gradient(circle,rgba(226,200,128,0.05),transparent 70%)",animation:"aurora 20s ease-in-out infinite" }}/>
-        <div style={{ position:"absolute",bottom:"10%",right:"5%",width:400,height:400,borderRadius:"50%",
-          background:"radial-gradient(circle,rgba(125,249,255,0.04),transparent 70%)",animation:"aurora 26s ease-in-out infinite reverse" }}/>
+// ═══════════════════════════════════════════════════════════
+// DAMAGE CALCULATOR
+// ═══════════════════════════════════════════════════════════
+function renderDamageTab(){
+  const app=document.getElementById('damage-app');
+  const teamChars=team.filter(Boolean).map(id=>loadedChars.find(c=>c.avatarId===id)).filter(Boolean);
+
+  if(!loadedChars.length){app.innerHTML=`<div class="empty-state"><div class="big">💥</div><p>Load a UID first.</p></div>`;return;}
+  if(!teamChars.length){app.innerHTML=`<div class="empty-state"><div class="big">⚔️</div><p>Add characters in Team Builder first.</p></div>`;return;}
+
+  // auto-select first
+  if(!dmgSelectedId||!teamChars.find(c=>c.avatarId===dmgSelectedId))dmgSelectedId=teamChars[0].avatarId;
+
+  const selChar=teamChars.find(c=>c.avatarId===dmgSelectedId);
+  const fpm=selChar?.fightPropMap||{};
+
+  const charListHtml=teamChars.map(c=>{
+    const id=c.avatarId;
+    const icon=getSideIcon(id);
+    const name=getCharName(id);
+    return`<div class="char-sel-btn${id===dmgSelectedId?' active':''}" onclick="selectDmgChar(${id})">
+      ${icon?`<img class="csel-icon" src="${icon}" loading="lazy" onerror="this.style.display='none'">`:
+        `<div class="csel-icon" style="display:flex;align-items:center;justify-content:center;font-size:1.1rem">${ELEM_EMOJI[getElement(id)]||'✦'}</div>`}
+      <div>
+        <div class="csel-name">${escHtml(name)}</div>
+        <div class="csel-cv">CV ${calcCV(c.fightPropMap||{}).toFixed(0)}</div>
       </div>
+    </div>`;
+  }).join('');
 
-      {/* NAVBAR */}
-      <nav style={{ position:"fixed",top:12,left:"50%",transform:"translateX(-50%)",zIndex:100,
-        background:"rgba(7,7,17,0.92)",backdropFilter:"blur(24px)",
-        border:"1px solid rgba(226,200,128,0.12)",borderRadius:50,
-        padding:"5px 5px",display:"flex",alignItems:"center",gap:3,
-        boxShadow:"0 8px 32px rgba(0,0,0,.5)" }}>
-        <div style={{ padding:"5px 14px",marginRight:3,display:"flex",alignItems:"center",gap:7 }}>
-          <span>⚔️</span>
-          <span style={{ fontWeight:800,fontSize:12.5,background:"linear-gradient(135deg,#E2C880,#FF6B9D)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>ENKAVERSE</span>
+  // Pre-fill from stats
+  const atk=Math.round(fpm['2001']||0);
+  const cr=((fpm['20']||0)*100).toFixed(1);
+  const cd=((fpm['22']||0)*100).toFixed(1);
+  const dmgBonus=Math.round(Math.max(
+    fpm['26']||0,fpm['40']||0,fpm['41']||0,fpm['42']||0,fpm['43']||0,fpm['44']||0,fpm['45']||0,fpm['46']||0,fpm['1002']||0
+  )*100);
+
+  app.innerHTML=`
+    <p class="dmg-intro">Select a character from your team. Stats are auto-filled from their build.<br>
+    Adjust the multiplier for the skill you're calculating, then hit Calculate.</p>
+    <div class="dmg-layout">
+      <div>
+        <div class="dmg-panel">
+          <div class="dmg-panel-title">Select Character</div>
+          <div class="char-select-list">${charListHtml}</div>
         </div>
-        {result && (
-          <div style={{ padding:"5px 14px",fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace" }}>
-            {result.player?.nickname ?? "Traveler"} · UID {result.uid}
-          </div>
-        )}
-      </nav>
-
-      {/* LOADING */}
-      {loading && (
-        <div style={{ position:"fixed",inset:0,zIndex:999,background:"rgba(4,4,14,0.97)",
-          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:18 }}>
-          <div style={{ fontSize:38,animation:"spin 1.1s linear infinite" }}>✦</div>
-          <div style={{ fontSize:9.5,letterSpacing:4,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace" }}>FETCHING FROM ENKA.NETWORK</div>
-          <div style={{ width:240,height:2,background:"rgba(255,255,255,0.07)",borderRadius:1 }}>
-            <div style={{ height:"100%",width:`${Math.min(progress,100)}%`,borderRadius:1,
-              background:"linear-gradient(90deg,#E2C880,#FF6B9D)",
-              transition:"width .2s ease",boxShadow:"0 0 10px rgba(226,200,128,0.6)" }}/>
-          </div>
-          <div style={{ fontSize:13,color:"#E2C880",fontWeight:700,fontFamily:"'Oxanium',cursive" }}>{Math.min(100,Math.round(progress))}%</div>
-        </div>
-      )}
-
-      {/* MODAL */}
-      {selected && <CharacterModal char={selected} onClose={() => setSelected(null)} />}
-
-      <div style={{ position:"relative",zIndex:1,maxWidth:1060,margin:"0 auto",padding:"88px 18px 56px" }}>
-
-        {/* SEARCH SECTION */}
-        <div style={{ marginBottom: result ? 28 : 0 }}>
-          {!result && (
-            <div style={{ textAlign:"center",marginBottom:36,animation:"fadeIn .7s ease" }}>
-              <div style={{ fontSize:10.5,letterSpacing:5,color:"#E2C880",fontFamily:"'DM Mono',monospace",marginBottom:14,animation:"pulse 3s ease-in-out infinite" }}>
-                ✦ GENSHIN IMPACT · LIVE BUILD SHOWCASE ✦
-              </div>
-              <h1 style={{ fontSize:"clamp(36px,8vw,76px)",fontWeight:800,lineHeight:1.05,margin:"0 0 16px" }}>
-                <span style={{ display:"block",background:"linear-gradient(135deg,#fff,rgba(255,255,255,0.6))",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>YOUR BUILDS.</span>
-                <span style={{ display:"block",background:"linear-gradient(135deg,#E2C880 0%,#FF6B9D 50%,#7DF9FF 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" }}>LEGENDARY.</span>
-              </h1>
-            </div>
-          )}
-
-          <div style={{ display:"flex",gap:8,maxWidth:480,margin:"0 auto",flexWrap:"wrap",justifyContent:"center" }}>
-            <div style={{ flex:1,minWidth:200,position:"relative" }}>
-              <input value={inputUid}
-                onChange={e => setInputUid(e.target.value.replace(/\D/g,"").slice(0,10))}
-                onKeyDown={e => e.key==="Enter" && doSearch()}
-                placeholder="Enter Genshin UID…"
-                style={{ width:"100%",background:"rgba(255,255,255,0.04)",
-                  border:`1px solid ${inputUid.length>=8?"rgba(226,200,128,0.4)":"rgba(255,255,255,0.11)"}`,
-                  borderRadius:13,padding:"12px 38px 12px 16px",color:"white",fontSize:13.5,
-                  fontFamily:"'DM Mono',monospace",outline:"none",
-                  transition:"border-color .3s",
-                  boxShadow:inputUid.length>=8?"0 0 14px rgba(226,200,128,0.12)":"none" }}/>
-              {inputUid.length>=8 && (
-                <div style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
-                  width:6,height:6,borderRadius:"50%",background:"#72FF96",boxShadow:"0 0 7px #72FF96" }}/>
-              )}
-            </div>
-            <button onClick={() => doSearch()}
-              style={{ background:"linear-gradient(135deg,#E2C880,#D4A843)",border:"none",
-                borderRadius:13,padding:"12px 20px",cursor:"pointer",color:"#0A0A0F",
-                fontWeight:800,fontSize:12.5,fontFamily:"'Oxanium',cursive",letterSpacing:.7,flexShrink:0 }}>
-              SEARCH →
-            </button>
-            {result && (
-              <button onClick={() => doSearch(result.uid, true)}
-                style={{ background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",
-                  borderRadius:13,padding:"12px 16px",cursor:"pointer",color:"rgba(255,255,255,0.6)",
-                  fontSize:12,fontFamily:"'DM Mono',monospace",letterSpacing:.5 }}>
-                ↺ Refresh
-              </button>
-            )}
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div style={{ maxWidth:480,margin:"10px auto 0",background:"rgba(255,70,70,0.07)",
-              border:"1px solid rgba(255,70,70,0.22)",borderRadius:11,padding:"9px 15px",
-              fontSize:11.5,color:"#FF8080",fontFamily:"'DM Mono',monospace",lineHeight:1.55,textAlign:"center" }}>
-              ⚠ {error}
-            </div>
-          )}
-
-          {/* Cache hit notice */}
-          {cacheStatus && (
-            <div style={{ maxWidth:480,margin:"10px auto 0",background:"rgba(125,249,255,0.06)",
-              border:"1px solid rgba(125,249,255,0.18)",borderRadius:11,padding:"8px 14px",
-              fontSize:11,color:"#7DF9FF",fontFamily:"'DM Mono',monospace",textAlign:"center" }}>
-              ⚡ Served from cache · refreshes at {cacheStatus.expiresAt} ({cacheStatus.secondsLeft}s remaining)
-            </div>
-          )}
-        </div>
-
-        {/* PLAYER BANNER + CHARACTERS */}
-        {result && (
-          <div style={{ animation:"fadeIn .5s ease" }}>
-            {/* Player info banner */}
-            {result.player && (
-              <div style={{ background:"linear-gradient(135deg,rgba(11,11,25,0.97),rgba(16,16,38,0.97))",
-                border:"1px solid rgba(226,200,128,0.16)",borderRadius:17,padding:"20px 24px",
-                marginBottom:20,position:"relative",overflow:"hidden" }}>
-                <div style={{ position:"absolute",top:0,left:0,right:0,height:2,
-                  background:"linear-gradient(90deg,#E2C880,#FF6B9D,#7DF9FF,#E2C880)" }}/>
-                <div style={{ display:"flex",gap:16,alignItems:"center",flexWrap:"wrap" }}>
-                  <div style={{ width:54,height:54,borderRadius:"50%",flexShrink:0,fontSize:24,
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    background:"linear-gradient(135deg,#E2C880,#FF6B9D)",
-                    boxShadow:"0 0 18px rgba(226,200,128,0.36)" }}>⚔️</div>
-                  <div style={{ flex:1,minWidth:160 }}>
-                    <h2 style={{ fontSize:18,fontWeight:800,margin:"0 0 3px",fontFamily:"'Oxanium',cursive" }}>
-                      {result.player.nickname}
-                    </h2>
-                    <div style={{ fontSize:10.5,color:"rgba(255,255,255,0.38)",fontFamily:"'DM Mono',monospace" }}>
-                      UID: {result.uid}
-                      {result.player.signature ? ` · "${result.player.signature}"` : ""}
-                    </div>
-                  </div>
-                  <div style={{ display:"flex",gap:20,flexWrap:"wrap" }}>
-                    {[
-                      { l:"ADV RANK",  v:result.player.level,        c:"#E2C880" },
-                      { l:"WORLD LV",  v:result.player.worldLevel,   c:"#7DF9FF" },
-                      { l:"SHOWCASED", v:characters.length,          c:"#80FF72" },
-                      { l:"TTL (s)",   v:result.ttl,                 c:"#C77DFF" },
-                    ].map(s=>(
-                      <div key={s.l} style={{ textAlign:"center" }}>
-                        <div style={{ fontSize:7.5,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:.8 }}>{s.l}</div>
-                        <div style={{ fontSize:18,fontWeight:800,color:s.c,fontFamily:"'Oxanium',cursive" }}>
-                          <AnimNum target={s.v??0}/>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Integration status row */}
-                <div style={{ marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.07)",
-                  display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
-                  <AssetStatusBadge assetReady={assetReady} assetError={assetError}/>
-                  <div style={{ fontSize:10,color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono',monospace" }}>
-                    · via CORS proxy · User-Agent: {USER_AGENT}
-                  </div>
-                  {result.fromCache && (
-                    <div style={{ fontSize:10,color:"#7DF9FF",fontFamily:"'DM Mono',monospace",
-                      background:"rgba(125,249,255,0.06)",border:"1px solid rgba(125,249,255,0.15)",
-                      borderRadius:20,padding:"2px 9px" }}>⚡ from cache</div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Element filter */}
-            {characters.length > 1 && (
-              <div style={{ display:"flex",gap:6,marginBottom:16,flexWrap:"wrap" }}>
-                {elements.map(el=>(
-                  <button key={el} onClick={()=>setElemFilter(el)} style={{
-                    background:elemFilter===el?"rgba(226,200,128,0.1)":"rgba(255,255,255,0.04)",
-                    border:`1px solid ${elemFilter===el?"rgba(226,200,128,0.3)":"rgba(255,255,255,0.09)"}`,
-                    borderRadius:30,padding:"4px 13px",cursor:"pointer",
-                    color:elemFilter===el?"#E2C880":"rgba(255,255,255,0.4)",
-                    fontSize:10.5,fontFamily:"'DM Mono',monospace",transition:"all .18s" }}>
-                    {el!=="All"&&ELEM[el]?ELEM[el].e+" ":""}{el.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Character grid */}
-            {filtered.length === 0
-              ? <div style={{ textAlign:"center",color:"rgba(255,255,255,0.22)",fontFamily:"'DM Mono',monospace",padding:36 }}>
-                  No {elemFilter} characters in showcase
-                </div>
-              : <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:12 }}>
-                  {filtered.map((char,i) => (
-                    <CharacterCard key={char.avatarId} char={char} onClick={setSelected} idx={i}/>
-                  ))}
-                </div>
-            }
-
-            {characters.length === 0 && (
-              <div style={{ textAlign:"center",padding:40,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace" }}>
-                <div style={{ fontSize:40,marginBottom:12 }}>📭</div>
-                Player found but no characters are set in the showcase.
-                <br/>
-                <span style={{ fontSize:10.5,color:"rgba(255,255,255,0.2)" }}>
-                  In-game: Paimon Menu → Profile → Character Showcase → add up to 8 characters
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Info cards (shown when no result yet) */}
-        {!result && (
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(195px,1fr))",gap:13,maxWidth:840,margin:"44px auto 0",animation:"fadeIn .8s ease .3s both" }}>
-            {[
-              { icon:"🔗", title:"Req 1 — Correct Endpoint",    desc:`${ENKA_BASE}/api/uid/<UID>`,          color:"#E2C880" },
-              { icon:"🪪", title:"Req 2 — Custom User-Agent",   desc:`${USER_AGENT} forwarded via X-User-Agent header`, color:"#7DF9FF" },
-              { icon:"🗂️", title:"Req 3 — ID Mapping",          desc:"Loads store/characters.json + store/loc.json from official Enka repo", color:"#C77DFF" },
-              { icon:"🛡️", title:"Req 4 — Safe Parsing",        desc:"Every field guarded with ?? fallbacks, try/catch per avatar", color:"#80FF72" },
-              { icon:"⚡", title:"Req 5 — TTL Cache",           desc:"In-memory Map keyed by UID, ttl seconds from API response", color:"#FF6B9D" },
-            ].map((f,i) => (
-              <div key={i} style={{ background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.07)",
-                borderRadius:13,padding:16,transition:"all .22s" }}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=f.color+"30";e.currentTarget.style.transform="translateY(-3px)";}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";e.currentTarget.style.transform="translateY(0)";}}>
-                <div style={{ fontSize:22,marginBottom:7 }}>{f.icon}</div>
-                <div style={{ fontSize:11.5,fontWeight:700,color:f.color,marginBottom:4 }}>{f.title}</div>
-                <div style={{ fontSize:10,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace",lineHeight:1.55 }}>{f.desc}</div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
-
-      <div style={{ textAlign:"center",padding:"14px 0 22px",fontSize:9.5,color:"rgba(255,255,255,0.13)",fontFamily:"'DM Mono',monospace",position:"relative",zIndex:1 }}>
-        ENKAVERSE · DATA VIA ENKA.NETWORK · NOT AFFILIATED WITH HOYOVERSE
+      <div>
+        <div class="dmg-panel">
+          <div class="dmg-panel-title">Damage Inputs</div>
+          <div class="dmg-inputs">
+            <div class="dmg-field"><label>ATK (total)</label><input class="dmg-input" id="d-atk" type="number" value="${atk}" placeholder="e.g. 2800"/></div>
+            <div class="dmg-field"><label>CRIT Rate (%)</label><input class="dmg-input" id="d-cr" type="number" value="${cr}" step="0.1" placeholder="e.g. 65.0"/></div>
+            <div class="dmg-field"><label>CRIT DMG (%)</label><input class="dmg-input" id="d-cd" type="number" value="${cd}" step="0.1" placeholder="e.g. 180.0"/></div>
+            <div class="dmg-field"><label>DMG Bonus (%)</label><input class="dmg-input" id="d-dmg" type="number" value="${dmgBonus}" step="0.1" placeholder="e.g. 46.6"/></div>
+            <div class="dmg-field"><label>Skill Multiplier (%)</label><input class="dmg-input" id="d-mult" type="number" value="300" step="0.1" placeholder="e.g. 300"/></div>
+            <div class="dmg-field"><label>Enemy DEF Reduction (%)</label><input class="dmg-input" id="d-defr" type="number" value="0" step="0.1" placeholder="0"/></div>
+          </div>
+          <button class="dmg-calc-btn" onclick="calcDmg()">⚡ Calculate Damage</button>
+        </div>
       </div>
     </div>
-  );
+    <div id="dmg-results"></div>`;
 }
+
+function selectDmgChar(id){
+  dmgSelectedId=id;
+  renderDamageTab();
+}
+
+function calcDmg(){
+  const atk=parseFloat(document.getElementById('d-atk').value)||0;
+  const cr=Math.min(100,parseFloat(document.getElementById('d-cr').value)||0);
+  const cd=parseFloat(document.getElementById('d-cd').value)||0;
+  const dmgBonus=parseFloat(document.getElementById('d-dmg').value)||0;
+  const mult=parseFloat(document.getElementById('d-mult').value)||100;
+  const defr=parseFloat(document.getElementById('d-defr').value)||0;
+
+  // Base formula (simplified, assuming LV 90 vs LV 90 enemy)
+  // DEF factor = (90+100) / ((90+100) + (90+100) * (1 - defr/100))
+  const defFactor=(190)/(190+190*(1-defr/100));
+  const baseDmg=atk*(mult/100)*(1+dmgBonus/100)*defFactor;
+  const critDmg=baseDmg*(1+cd/100);
+  const avgDmg=baseDmg*(1+Math.min(cr,100)/100*(cd/100));
+
+  const res=document.getElementById('dmg-results');
+  res.innerHTML=`
+    <div class="dmg-results">
+      <div class="dmg-result-title">📊 Damage Breakdown</div>
+      <div class="dmg-result-row"><span class="dmg-result-lbl">Non-Crit Hit</span><span class="dmg-result-val norm">${Math.round(baseDmg).toLocaleString()}</span></div>
+      <div class="dmg-result-row"><span class="dmg-result-lbl">Crit Hit</span><span class="dmg-result-val crit">${Math.round(critDmg).toLocaleString()}</span></div>
+      <div class="dmg-result-row"><span class="dmg-result-lbl">Average (with CRIT rate)</span><span class="dmg-result-val avg">${Math.round(avgDmg).toLocaleString()}</span></div>
+      <div class="dmg-breakdown">
+        Formula: ATK × Multiplier% × (1 + DMG Bonus%) × DEF Factor × (1 + CRIT DMG%)<br>
+        = ${atk.toLocaleString()} × ${mult}% × (1 + ${dmgBonus}%) × ${defFactor.toFixed(3)} × (1 + ${cd}%)<br>
+        Average = Non-Crit × (1 + CRIT Rate% × CRIT DMG%/100)<br>
+        <span style="color:var(--text-muted);font-size:.58rem">* Simplified formula. Does not include resistance, reaction, or buff multipliers.</span>
+      </div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// PARTICLES
+// ═══════════════════════════════════════════════════════════
+(function(){
+  const canvas=document.getElementById('particles'),ctx=canvas.getContext('2d');
+  let W,H,pts=[];
+  const resize=()=>{W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;};
+  function Pt(){this.x=Math.random()*W;this.y=Math.random()*H;this.vx=(Math.random()-.5)*.22;this.vy=(Math.random()-.5)*.16;this.r=Math.random()*1.1+.3;this.color=['#f0c04044','#00e5ff33','#ff6b8a22'][Math.floor(Math.random()*3)];}
+  const init=()=>{resize();pts=Array.from({length:70},()=>new Pt());};
+  const frame=()=>{ctx.clearRect(0,0,W,H);pts.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=W;if(p.x>W)p.x=0;if(p.y<0)p.y=H;if(p.y>H)p.y=0;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=p.color;ctx.fill();});requestAnimationFrame(frame);};
+  window.addEventListener('resize',resize);init();frame();
+})();
+
+document.getElementById('uid-input').addEventListener('keydown',e=>{if(e.key==='Enter')fetchProfile();});
+</script>
+</body>
+</html>
