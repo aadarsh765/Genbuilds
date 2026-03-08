@@ -317,10 +317,11 @@ let dmgSelectedId=null;
 // ═══════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════
-async function fetchWithProxy(url){
-  const now=Date.now();
-  if(CACHE[url]&&now-CACHE[url].ts<TTL)return CACHE[url].data;
-  for(const proxy of PROXIES){
+async function fetchWithProxy(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}{
     try{
       const res=await fetch(proxy(url),{headers:{'X-User-Agent':'EnkaVerse/3.0'}});
       if(!res.ok)continue;
@@ -377,10 +378,7 @@ async function fetchProfile(){
   document.getElementById('chars-app').innerHTML='';
   try{
     await loadMeta();
-    const data=await async function fetchWithProxy(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
+    const data=await fetchWithProxy(`/api/uid?uid=${uid}`);
 }
       (`/api/uid?uid=${uid}`);
     loadedChars=data.avatarInfoList||[];
