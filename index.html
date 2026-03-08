@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EnkaVerse — Genshin Showcase</title>
+  <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@300;400;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --gold: #f0c040;
+      --gold-dim: #a8862a;
+      --cyan: #00e5ff;
+      --cyan-dim: #0097a7;
+      --rose: #ff6b8a;
+      --rose-dim: #c2185b;
+      --bg: #080c14;
+      --glass: rgba(255,255,255,0.04);
+      --glass-border: rgba(255,255,255,0.09);
+      --text: #e8eaf0;
+      --text-dim: #8899aa;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Oxanium', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Particle canvas ── */
+    #particles { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+    /* ── Background gradient mesh ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 10% 20%, rgba(0,229,255,0.07) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 60% at 90% 80%, rgba(240,192,64,0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 50% 50%, rgba(255,107,138,0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ── Layout ── */
+    .wrapper { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+    /* ── Header ── */
+    header {
+      padding: 3rem 0 2rem;
+      text-align: center;
+      border-bottom: 1px solid var(--glass-border);
+      margin-bottom: 3rem;
+      position: relative;
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; left: 50%; transform: translateX(-50%);
+      width: 120px; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+    .logo {
+      font-size: clamp(2rem, 6vw, 3.5rem);
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      background: linear-gradient(135deg, var(--gold), var(--cyan) 60%, var(--rose));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.1;
+    }
+    .tagline {
+      margin-top: 0.5rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    /* ── Search bar ── */
+    .search-section { max-width: 520px; margin: 0 auto 3rem; }
+    .search-label {
+      display: block;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 0.6rem;
+    }
+    .search-row { display: flex; gap: 0.6rem; }
+    .search-input {
+      flex: 1;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--cyan-dim);
+      box-shadow: 0 0 0 3px rgba(0,229,255,0.08);
+    }
+    .search-input::placeholder { color: var(--text-dim); }
+    .search-btn {
+      background: linear-gradient(135deg, var(--gold-dim), var(--gold));
+      border: none; border-radius: 8px;
+      padding: 0.75rem 1.4rem;
+      color: #0a0a0a;
+      font-family: 'Oxanium', sans-serif;
+      font-weight: 700;
+      font-size: 0.88rem;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+    .search-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+    .search-btn:active { transform: translateY(0); }
+    .search-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Status messages ── */
+    .status {
+      text-align: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.82rem;
+      margin-top: 0.8rem;
+      min-height: 1.2em;
+    }
+    .status.loading { color: var(--cyan); }
+    .status.error   { color: var(--rose); }
+    .status.ok      { color: #a8e6a8; }
+
+    /* ── Player info card ── */
+    .player-card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      padding: 1.4rem 1.8rem;
+      margin-bottom: 2.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      backdrop-filter: blur(12px);
+    }
+    .player-avatar {
+      width: 60px; height: 60px;
+      border-radius: 50%;
+      border: 2px solid var(--gold-dim);
+      background: rgba(240,192,64,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.6rem;
+      flex-shrink: 0;
+    }
+    .player-name { font-size: 1.3rem; font-weight: 700; color: var(--gold); }
+    .player-meta {
+      display: flex; gap: 1.2rem; margin-top: 0.3rem; flex-wrap: wrap;
+    }
+    .player-meta span {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+    .player-meta span b { color: var(--text); font-weight: 500; }
+
+    /* ── Grid ── */
+    .chars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.4rem;
+    }
+
+    /* ── Character card ── */
+    .char-card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      overflow: hidden;
+      backdrop-filter: blur(14px);
+      transition: transform 0.12s ease, box-shadow 0.2s;
+      cursor: default;
+      will-change: transform;
+      position: relative;
+    }
+    .char-card:hover {
+      box-shadow: 0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(240,192,64,0.18);
+    }
+    .char-banner {
+      position: relative;
+      height: 140px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #111820, #0d1620);
+    }
+    .char-banner::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(to bottom, transparent 40%, var(--bg) 100%);
+      z-index: 1;
+    }
+    .char-side-icon {
+      position: absolute;
+      right: 0; bottom: 0;
+      height: 140px; width: auto;
+      z-index: 0;
+      filter: drop-shadow(0 0 20px rgba(0,0,0,0.8));
+      opacity: 0.95;
+    }
+    .char-element-badge {
+      position: absolute; top: 0.7rem; left: 0.8rem; z-index: 2;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.9rem;
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .char-level-badge {
+      position: absolute; top: 0.7rem; right: 0.8rem; z-index: 2;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--gold);
+      background: rgba(0,0,0,0.5);
+      padding: 0.15rem 0.5rem;
+      border-radius: 20px;
+      border: 1px solid var(--gold-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .char-body { padding: 0.9rem 1rem 1rem; }
+    .char-name {
+      font-size: 1.05rem; font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      margin-bottom: 0.6rem;
+    }
+
+    /* ── Stats grid ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.25rem 0.5rem;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.2rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .stat-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .stat-val {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    /* ── CV badge ── */
+    .cv-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 0.75rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(240,192,64,0.07);
+      border: 1px solid rgba(240,192,64,0.18);
+    }
+    .cv-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--gold-dim);
+      letter-spacing: 0.1em;
+    }
+    .cv-score {
+      font-family: 'Oxanium', sans-serif;
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--gold);
+    }
+    .cv-score.high { color: var(--rose); }
+    .cv-score.mid  { color: var(--cyan); }
+
+    /* ── Constellations ── */
+    .consts {
+      display: flex; gap: 4px; margin-top: 0.6rem;
+    }
+    .const-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.15);
+      transition: background 0.2s;
+    }
+    .const-dot.active { background: var(--cyan); border-color: var(--cyan); }
+
+    /* ── Empty state ── */
+    .empty-state {
+      text-align: center;
+      padding: 5rem 1rem;
+      color: var(--text-dim);
+    }
+    .empty-state .big { font-size: 3rem; margin-bottom: 1rem; }
+    .empty-state p { font-family: 'DM Mono', monospace; font-size: 0.8rem; letter-spacing: 0.1em; }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 5rem;
+      text-align: center;
+      padding: 1.5rem 0;
+      border-top: 1px solid var(--glass-border);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+    }
+    footer a { color: var(--cyan-dim); text-decoration: none; }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(0,229,255,0.2);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Shimmer skeleton ── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--glass) 25%, rgba(255,255,255,0.07) 50%, var(--glass) 75%);
+      background-size: 400% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 6px;
+    }
+    @keyframes shimmer { to { background-position: -400% 0; } }
+
+    @media (max-width: 560px) {
+      .chars-grid { grid-template-columns: 1fr; }
+      .player-card { flex-direction: column; text-align: center; }
+      .player-meta { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="particles"></canvas>
+
+<div class="wrapper">
+  <header>
+    <div class="logo">ENKAVERSE</div>
+    <div class="tagline">Genshin Impact · Character Showcase</div>
+  </header>
+
+  <div class="search-section">
+    <label class="search-label" for="uid-input">Enter UID</label>
+    <div class="search-row">
+      <input id="uid-input" class="search-input" type="text" placeholder="e.g. 700000000" maxlength="10"/>
+      <button id="search-btn" class="search-btn" onclick="fetchProfile()">SEARCH</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div id="app"></div>
+</div>
+
+<footer>
+  EnkaVerse · Data from <a href="https://enka.network" target="_blank">enka.network</a> · 
+  Not affiliated with HoYoverse · Genshin Impact™ is a trademark of HoYoverse
+</footer>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────
+const ENKA_CDN   = 'https://enka.network/ui';
+const CHAR_JSON  = 'https://raw.githubusercontent.com/EnkaNetwork/API-docs/master/store/characters.json';
+const LOC_JSON   = 'https://raw.githubusercontent.com/EnkaNetwork/API-docs/master/store/loc.json';
+
+const PROXIES = [
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+  u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+];
+
+const CACHE = {};
+const TTL   = 60 * 1000; // 60s
+
+const ELEMENT_MAP = {
+  Wind: '🌪️', Rock: '🪨', Electric: '⚡', Grass: '🌿',
+  Water: '💧', Fire: '🔥', Ice: '❄️',
+};
+const ELEMENT_COLOR = {
+  Wind:'#7ec8a0', Rock:'#cfa44a', Electric:'#b08af0',
+  Grass:'#a3cc55', Water:'#4ab0e0', Fire:'#e05f30', Ice:'#a0d8ef',
+};
+
+// ── Fight prop key → label ──────────────────────────────────────────────
+const PROP_LABELS = {
+  '2000': ['HP',  false],
+  '2001': ['ATK', false],
+  '2002': ['DEF', false],
+  '20':   ['CRIT Rate',  true],
+  '22':   ['CRIT DMG',   true],
+  '23':   ['ER',         true],
+  '28':   ['EM',         false],
+};
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+async function fetchWithProxy(url) {
+  const now  = Date.now();
+  if (CACHE[url] && now - CACHE[url].ts < TTL) return CACHE[url].data;
+
+  for (const proxy of PROXIES) {
+    try {
+      const res  = await fetch(proxy(url), {
+        headers: { 'X-User-Agent': 'EnkaVerse/1.0' },
+      });
+      if (!res.ok) continue;
+      const text = await res.text();
+      let   data;
+      try { data = JSON.parse(text); } catch { continue; }
+      CACHE[url] = { ts: now, data };
+      return data;
+    } catch { /* try next proxy */ }
+  }
+  throw new Error('All proxies failed — check your UID or try again later.');
+}
+
+let charMeta = null, locData = null;
+
+async function loadMeta() {
+  if (!charMeta) charMeta = await fetchWithProxy(CHAR_JSON);
+  if (!locData)  locData  = await fetchWithProxy(LOC_JSON);
+}
+
+function getCharName(avatarId) {
+  const info = charMeta?.[String(avatarId)];
+  if (!info) return `#${avatarId}`;
+  const key = info.NameTextMapHash;
+  return locData?.['en']?.[key] || locData?.[key] || `#${avatarId}`;
+}
+
+function getSideIcon(avatarId) {
+  const info = charMeta?.[String(avatarId)];
+  if (!info?.SideIconName) return null;
+  return `${ENKA_CDN}/${info.SideIconName}.png`;
+}
+
+function getElement(avatarId) {
+  const info = charMeta?.[String(avatarId)];
+  return info?.Element || null;
+}
+
+function fmtNum(v, isPct) {
+  if (isPct) return (v * 100).toFixed(1) + '%';
+  return Math.round(v).toLocaleString();
+}
+
+function calcCV(fpm) {
+  const cr = parseFloat(fpm['20']  || 0);
+  const cd = parseFloat(fpm['22']  || 0);
+  return (cr * 100 * 2 + cd * 100).toFixed(1);
+}
+
+// ── Status ──────────────────────────────────────────────────────────────
+function setStatus(msg, type = '') {
+  const el = document.getElementById('status');
+  el.className = 'status ' + type;
+  el.innerHTML = msg;
+}
+
+// ── Main fetch ──────────────────────────────────────────────────────────
+async function fetchProfile() {
+  const uid = document.getElementById('uid-input').value.trim();
+  if (!/^\d{9,10}$/.test(uid)) {
+    setStatus('⚠ Please enter a valid 9–10 digit UID.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('search-btn');
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span> Loading profile…', 'loading');
+  document.getElementById('app').innerHTML = '';
+
+  try {
+    await loadMeta();
+    const data = await fetchWithProxy(`https://enka.network/api/uid/${uid}`);
+    renderProfile(data);
+    setStatus('✓ Profile loaded', 'ok');
+  } catch (e) {
+    setStatus('✗ ' + (e.message || 'Unknown error'), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Render ───────────────────────────────────────────────────────────────
+function renderProfile(data) {
+  const app  = document.getElementById('app');
+  const pi   = data.playerInfo || {};
+  const chars = data.avatarInfoList || [];
+
+  // Player card
+  const pc = document.createElement('div');
+  pc.className = 'player-card';
+  pc.innerHTML = `
+    <div class="player-avatar">🎮</div>
+    <div>
+      <div class="player-name">${escHtml(pi.nickname || 'Traveler')}</div>
+      <div class="player-meta">
+        <span>AR <b>${pi.level || '?'}</b></span>
+        <span>WL <b>${pi.worldLevel ?? '?'}</b></span>
+        <span>Abyss <b>${pi.towerFloorIndex || '?'}-${pi.towerLevelIndex || '?'}</b></span>
+        <span>Characters on showcase: <b>${chars.length}</b></span>
+      </div>
+    </div>`;
+  app.appendChild(pc);
+
+  if (!chars.length) {
+    app.innerHTML += `<div class="empty-state"><div class="big">🌸</div><p>No characters on showcase.<br>Set characters in-game via the profile tab.</p></div>`;
+    return;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'chars-grid';
+
+  chars.forEach(c => grid.appendChild(buildCharCard(c)));
+  app.appendChild(grid);
+
+  // Enable 3D tilt
+  document.querySelectorAll('.char-card').forEach(card => {
+    card.addEventListener('mousemove', e => {
+      const r = card.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width  - 0.5;
+      const y = (e.clientY - r.top)  / r.height - 0.5;
+      card.style.transform = `perspective(700px) rotateY(${x * 12}deg) rotateX(${-y * 10}deg) scale(1.03)`;
+    });
+    card.addEventListener('mouseleave', () => { card.style.transform = ''; });
+  });
+}
+
+function buildCharCard(c) {
+  const fpm  = c.fightPropMap || {};
+  const id   = c.avatarId;
+  const lvl  = c.propMap?.['4001']?.val || c.propMap?.['4001']?.ival || '?';
+  const consts = (c.talentIdList || []).length;
+  const name = getCharName(id);
+  const icon = getSideIcon(id);
+  const elem = getElement(id);
+  const cv   = parseFloat(calcCV(fpm));
+
+  const elemColor = ELEMENT_COLOR[elem] || '#aaa';
+  const elemEmoji = ELEMENT_MAP[elem]   || '✦';
+
+  const div = document.createElement('div');
+  div.className = 'char-card';
+
+  // Banner
+  const bannerBg = elem
+    ? `background: linear-gradient(135deg, #0a1018, ${elemColor}22 100%);`
+    : '';
+
+  const iconHtml = icon
+    ? `<img class="char-side-icon" src="${icon}" alt="${name}" loading="lazy" onerror="this.style.display='none'"/>`
+    : '';
+
+  const statsHtml = Object.entries(PROP_LABELS).map(([k, [label, isPct]]) => {
+    const val = fpm[k];
+    if (val === undefined) return '';
+    return `<div class="stat-row">
+      <span class="stat-label">${label}</span>
+      <span class="stat-val">${fmtNum(val, isPct)}</span>
+    </div>`;
+  }).join('');
+
+  const cvClass = cv >= 200 ? 'high' : cv >= 120 ? 'mid' : '';
+
+  const constsHtml = Array.from({length: 6}, (_, i) =>
+    `<div class="const-dot ${i < consts ? 'active' : ''}"></div>`
+  ).join('');
+
+  div.innerHTML = `
+    <div class="char-banner" style="${bannerBg}">
+      ${iconHtml}
+      <div class="char-element-badge" style="background:${elemColor}22; border-color:${elemColor}44;">
+        ${elemEmoji}
+      </div>
+      <div class="char-level-badge">LV ${lvl}</div>
+    </div>
+    <div class="char-body">
+      <div class="char-name">${escHtml(name)}</div>
+      <div class="stats-grid">${statsHtml}</div>
+      <div class="cv-bar">
+        <span class="cv-label">CRIT VALUE</span>
+        <span class="cv-score ${cvClass}">${cv.toFixed(1)}</span>
+      </div>
+      <div class="consts">${constsHtml}</div>
+    </div>`;
+
+  return div;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Particles ────────────────────────────────────────────────────────────
+(function initParticles() {
+  const canvas = document.getElementById('particles');
+  const ctx    = canvas.getContext('2d');
+  let W, H, pts = [];
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+
+  function Pt() {
+    this.x  = Math.random() * W;
+    this.y  = Math.random() * H;
+    this.vx = (Math.random() - 0.5) * 0.25;
+    this.vy = (Math.random() - 0.5) * 0.18;
+    this.r  = Math.random() * 1.2 + 0.3;
+    const palette = ['#f0c04044','#00e5ff33','#ff6b8a22'];
+    this.color = palette[Math.floor(Math.random() * palette.length)];
+  }
+
+  function init() {
+    resize();
+    pts = Array.from({length: 80}, () => new Pt());
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    pts.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0) p.x = W;
+      if (p.x > W) p.x = 0;
+      if (p.y < 0) p.y = H;
+      if (p.y > H) p.y = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    });
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  init();
+  frame();
+})();
+
+// Enter key on input
+document.getElementById('uid-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchProfile();
+});
+</script>
+</body>
+</html>
