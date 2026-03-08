@@ -2,7 +2,7 @@
 
 > A cinematic Genshin Impact character showcase — powered by the [Enka.Network](https://enka.network) API.
 
-![EnkaVerse Preview](https://enka.network/ui/UI_AvatarIcon_Side_Lumine.png)
+![EnkaVerse Preview] https://aadarsh765.github.io/Genbuilds/
 
 ---
 
