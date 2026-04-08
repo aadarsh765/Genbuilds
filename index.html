@@ -390,7 +390,7 @@ async function fetchProfile(){
   document.getElementById('chars-app').innerHTML='';
   try{
     await loadMeta();
-    const data=await fetchWithProxy(`/api/uid?uid=${uid}`);
+    const data=await fetchWithProxy(`https://enka.network/api/uid/${uid}`);
     loadedChars=data.avatarInfoList||[];
     renderCharsTab(data);
     renderTeamTab();
