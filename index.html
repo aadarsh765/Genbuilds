@@ -318,18 +318,30 @@ let dmgSelectedId=null;
 // HELPERS
 // ═══════════════════════════════════════════════════════════
 async function fetchWithProxy(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
-}{
-    try{
-      const res=await fetch(proxy(url),{headers:{'X-User-Agent':'EnkaVerse/3.0'}});
-      if(!res.ok)continue;
-      const text=await res.text();
-      let data;try{data=JSON.parse(text);}catch{continue;}
-      CACHE[url]={ts:now,data};return data;
-    }catch{}
+  const now = Date.now();
+  if (CACHE[url] && now - CACHE[url].ts < TTL) return CACHE[url].data;
+
+  try {
+    const res = await fetch(url, { headers: { 'X-User-Agent': 'EnkaVerse/3.0' } });
+    if (res.ok) {
+      const data = await res.json();
+      CACHE[url] = { ts: now, data };
+      return data;
+    }
+  } catch {}
+
+  for (const proxy of PROXIES) {
+    try {
+      const res = await fetch(proxy(url), { headers: { 'X-User-Agent': 'EnkaVerse/3.0' } });
+      if (!res.ok) continue;
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { continue; }
+      CACHE[url] = { ts: now, data };
+      return data;
+    } catch {}
   }
+
   throw new Error('All proxies failed. Check UID or try again later.');
 }
 async function loadMeta(){
@@ -379,8 +391,6 @@ async function fetchProfile(){
   try{
     await loadMeta();
     const data=await fetchWithProxy(`/api/uid?uid=${uid}`);
-}
-      (`/api/uid?uid=${uid}`);
     loadedChars=data.avatarInfoList||[];
     renderCharsTab(data);
     renderTeamTab();
